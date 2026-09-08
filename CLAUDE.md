@@ -13,4 +13,5 @@ SQLite (libsql, WAL mode) at `./data/rss.db`.
 ## Language
 
 - **Chat:** Respond in the same language the user speaks.
-- **Issues, PRs, and commit messages:** Always use English.
+- **Issues and PRs:** English or Japanese is fine. Keep a single document consistent in one language.
+- **Commit messages:** Always use English.

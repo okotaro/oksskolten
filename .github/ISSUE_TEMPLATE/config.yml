@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: ライブデモ
+    url: https://demo.oksskolten.com
+    about: Issue を作成する前に Oksskolten を試せます。
+  - name: ドキュメント
+    url: https://github.com/babarot/oksskolten/tree/main/docs
+    about: セットアップや使い方の疑問はドキュメントを確認してください。
