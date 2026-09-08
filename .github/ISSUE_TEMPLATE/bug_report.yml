@@ -1,65 +1,65 @@
-name: Bug Report
-description: Report unintended behavior or a defect
+name: バグ報告
+description: 意図しない挙動や不具合を報告する
 labels:
   - kind/bug
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to file a bug report. Please fill in as much of the form below as you can.
+        バグ報告ありがとうございます。わかる範囲でできるだけ記入してください。
 
   - type: textarea
     id: summary
     attributes:
-      label: Summary
-      description: A clear and concise description of what the bug is.
+      label: 概要
+      description: どんなバグかを簡潔に説明してください。
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
-      description: Steps to reproduce the behavior.
+      label: 再現手順
+      description: バグを再現させる手順を記載してください。
       placeholder: |
-        1. Go to '...'
-        2. Click on '...'
-        3. See error
+        1. '...' を開く
+        2. '...' をクリックする
+        3. エラーが表示される
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
-      description: What you expected to happen.
+      label: 期待する挙動
+      description: 本来どうなるべきかを記載してください。
     validations:
       required: true
 
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior
-      description: What actually happened. Include screenshots, logs, or stack traces if relevant.
+      label: 実際の挙動
+      description: 実際に何が起きたか。スクリーンショット・ログ・スタックトレースがあれば添付してください。
     validations:
       required: true
 
   - type: textarea
     id: environment
     attributes:
-      label: Environment
-      description: How are you running Oksskolten?
+      label: 環境
+      description: Oksskolten をどのように動かしていますか？
       value: |
-        - Version / commit:
-        - Deployment (Docker, local dev, demo, ...):
-        - Browser and OS:
+        - バージョン / コミット:
+        - デプロイ方法 (Docker、ローカル開発、デモ など):
+        - ブラウザと OS:
     validations:
       required: false
 
   - type: textarea
     id: context
     attributes:
-      label: Additional context
-      description: Any other information that might help.
+      label: 補足
+      description: 解決の助けになりそうな情報があれば記載してください。
     validations:
       required: false
