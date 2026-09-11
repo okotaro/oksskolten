@@ -1,0 +1,7 @@
+{
+    "theme": "dark",
+    "statusLine": {
+        "type": "command",
+        "command": "cat | bash ~/.claude/scripts/awesome-statusline-small.sh"
+    }
+}

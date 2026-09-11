@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    volumes:
+      - ../..:/workspaces/${LOCAL_FOLDER_NAME:?LOCAL_FOLDER_NAME is not set. Check .env next to this compose.yml}:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
