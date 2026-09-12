@@ -16,6 +16,7 @@ import {
   getRetryStats,
 } from '../db.js'
 import { createFeed, createCategory, getDb } from '../db.js'
+import { buildArticleConditions } from './articles.js'
 
 beforeEach(() => {
   setupTestDb()
@@ -812,5 +813,77 @@ describe('getRetryStats', () => {
     expect(stats.eligible).toBe(1)
     expect(stats.backoff_waiting).toBe(1)
     expect(stats.exceeded).toBe(1)
+  })
+})
+
+// --- buildArticleConditions ---
+
+describe('buildArticleConditions', () => {
+  it('オプションが空なら条件も束縛値も空になる', () => {
+    expect(buildArticleConditions({})).toEqual({ conditions: [], params: {} })
+  })
+
+  it('フィード指定のみで feed_id 条件と束縛値を返す', () => {
+    expect(buildArticleConditions({ feedId: 7 })).toEqual({
+      conditions: ['a.feed_id = @feedId'],
+      params: { feedId: 7 },
+    })
+  })
+
+  it('カテゴリ指定のみで category_id 条件と束縛値を返す', () => {
+    expect(buildArticleConditions({ categoryId: 3 })).toEqual({
+      conditions: ['a.category_id = @categoryId'],
+      params: { categoryId: 3 },
+    })
+  })
+
+  it('未読のみ指定では束縛値を持たない条件を返す', () => {
+    expect(buildArticleConditions({ unread: true })).toEqual({
+      conditions: ['a.seen_at IS NULL'],
+      params: {},
+    })
+  })
+
+  it('ブックマーク・お気に入り・既読の各指定がそれぞれの条件になる', () => {
+    expect(buildArticleConditions({ bookmarked: true }).conditions).toEqual(['a.bookmarked_at IS NOT NULL'])
+    expect(buildArticleConditions({ liked: true }).conditions).toEqual(['a.liked_at IS NOT NULL'])
+    expect(buildArticleConditions({ read: true }).conditions).toEqual(['a.read_at IS NOT NULL'])
+  })
+
+  it('複数条件では切り出し前と同じ順序で条件を並べる', () => {
+    expect(buildArticleConditions({
+      feedId: 1,
+      categoryId: 2,
+      unread: true,
+      bookmarked: true,
+      liked: true,
+      read: true,
+    })).toEqual({
+      conditions: [
+        'a.feed_id = @feedId',
+        'a.category_id = @categoryId',
+        'a.seen_at IS NULL',
+        'a.bookmarked_at IS NOT NULL',
+        'a.liked_at IS NOT NULL',
+        'a.read_at IS NOT NULL',
+      ],
+      params: { feedId: 1, categoryId: 2 },
+    })
+  })
+
+  it('false や 0 の指定では条件を追加しない', () => {
+    expect(buildArticleConditions({
+      feedId: 0,
+      categoryId: 0,
+      unread: false,
+      bookmarked: false,
+      liked: false,
+      read: false,
+    })).toEqual({ conditions: [], params: {} })
+  })
+
+  it('smart floor の条件は含めない', () => {
+    const { conditions } = buildArticleConditions({ feedId: 1, unread: true })
+    expect(conditions.some(c => c.includes('@smartFloorDate'))).toBe(false)
   })
 })

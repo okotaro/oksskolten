@@ -87,20 +87,33 @@ export function recalculateScores(): { updated: number } {
 
 // --- Article list queries ---
 
-export function getArticles(opts: {
+/** Filters that narrow an article list query. Every field is optional. */
+export interface ArticleFilterOptions {
   feedId?: number
   categoryId?: number
   unread?: boolean
   bookmarked?: boolean
   liked?: boolean
   read?: boolean
-  sort?: 'score'
-  limit: number
-  offset: number
-  smartFloor?: boolean
-}): { articles: ArticleListItem[]; total: number; totalWithoutFloor?: number } {
+}
+
+export interface ArticleConditions {
+  /** Condition expressions to join with AND. The table alias is always 'a.'. */
+  conditions: string[]
+  /** Named bind values matching the @name placeholders inside conditions. */
+  params: Record<string, number>
+}
+
+/**
+ * Build the article filter conditions shared by the list query and the bulk
+ * mark-as-read target selection. Stateless and free of DB access.
+ *
+ * The smart floor is deliberately NOT handled here: it narrows the displayed
+ * range only, so the floor date is computed and applied by getArticles alone.
+ */
+export function buildArticleConditions(opts: ArticleFilterOptions): ArticleConditions {
   const conditions: string[] = []
-  const params: Record<string, unknown> = {}
+  const params: Record<string, number> = {}
 
   if (opts.feedId) {
     conditions.push('a.feed_id = @feedId')
@@ -122,6 +135,26 @@ export function getArticles(opts: {
   if (opts.read) {
     conditions.push('a.read_at IS NOT NULL')
   }
+
+  return { conditions, params }
+}
+
+export function getArticles(opts: {
+  feedId?: number
+  categoryId?: number
+  unread?: boolean
+  bookmarked?: boolean
+  liked?: boolean
+  read?: boolean
+  sort?: 'score'
+  limit: number
+  offset: number
+  smartFloor?: boolean
+}): { articles: ArticleListItem[]; total: number; totalWithoutFloor?: number } {
+  const built = buildArticleConditions(opts)
+  const conditions: string[] = built.conditions
+  // Copy: the smart floor below adds a non-numeric bind value.
+  const params: Record<string, unknown> = { ...built.params }
 
   // Smart floor: limit the displayed range to keep lists manageable.
   // Pick the floor that yields the MOST articles (= earliest date) among:
