@@ -59,7 +59,7 @@ jobs:
         uses: Schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: 7de3479899077c477335584e14d51adc
+          gistID: b0ce87e5a9664f6eba01f822496dbc86
           filename: oksskolten-server-coverage.json
           label: server coverage
           message: ${{ env.SERVER_PCT }}%
@@ -72,7 +72,7 @@ jobs:
         uses: Schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: 7de3479899077c477335584e14d51adc
+          gistID: b0ce87e5a9664f6eba01f822496dbc86
           filename: oksskolten-client-coverage.json
           label: client coverage
           message: ${{ env.CLIENT_PCT }}%

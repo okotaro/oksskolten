@@ -13,8 +13,8 @@
 
 <p align="center">
   <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml/badge.svg" alt="Tests" /></a>
-  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-server-coverage.json" alt="Server Coverage" /></a>
-  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-client-coverage.json" alt="Client Coverage" /></a>
+  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/okotaro/b0ce87e5a9664f6eba01f822496dbc86/raw/oksskolten-server-coverage.json" alt="Server Coverage" /></a>
+  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/okotaro/b0ce87e5a9664f6eba01f822496dbc86/raw/oksskolten-client-coverage.json" alt="Client Coverage" /></a>
 </p>
 
 <p align="center">
