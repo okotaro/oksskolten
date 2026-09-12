@@ -73,6 +73,8 @@ const dict = {
   'articles.empty': { ja: '記事がありません', en: 'No articles', zh: '暂无文章'},
   'articles.allRead': { ja: 'すべて読みました', en: 'All caught up!', zh: '全部读完了！'},
   'articles.showReadArticles': { ja: '既読記事を表示する', en: 'Show read articles', zh: '显示已读文章'},
+  'articles.markReadAbove': { ja: 'これより上（新しい）を既読にする', en: 'Mark above (newer) as read', zh: '将上方（更新）标为已读'},
+  'articles.markReadBelow': { ja: 'これより下（古い）を既読にする', en: 'Mark below (older) as read', zh: '将下方（更早）标为已读'},
 
   // FeedErrorBanner - pipeline stages
   'feedError.stage.discovery': { ja: 'RSS検出', en: 'RSS Discovery', zh: 'RSS 发现'},
@@ -853,6 +855,12 @@ const dict = {
   'toast.fetchError': { ja: '${name}: フェッチに失敗しました', en: '${name}: Fetch failed', zh: '${name}：获取失败'},
   'toast.newVersion': { ja: '新しいバージョンが利用可能です', en: 'A new version is available', zh: '有新版本可用'},
   'toast.reload': { ja: '更新', en: 'Reload', zh: '重新加载'},
+  'toast.bulkMarkedRead': { ja: '${count}件を既読にしました', en: 'Marked ${count} articles as read', zh: '已将 ${count} 篇文章标为已读'},
+  'toast.bulkMarkedNone': { ja: '既読にする記事はありませんでした', en: 'No articles to mark as read', zh: '没有需要标为已读的文章'},
+  'toast.bulkMarkReadFailed': { ja: '一括既読に失敗しました', en: 'Failed to mark articles as read', zh: '批量标为已读失败'},
+  'toast.bulkUndo': { ja: '取り消す', en: 'Undo', zh: '撤销'},
+  'toast.bulkUndone': { ja: '未読に戻しました', en: 'Restored articles to unread', zh: '已恢复为未读'},
+  'toast.bulkUndoFailed': { ja: '取り消しに失敗しました', en: 'Failed to undo', zh: '撤销失败'},
 } as const
 
 type MessageKey = keyof typeof dict
