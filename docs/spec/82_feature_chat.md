@@ -116,7 +116,7 @@ Install the MCP server globally with a single command:
 
 ```bash
 claude mcp add --scope user --transport stdio oksskolten \
-  -- docker run -i --rm -v ~/.oksskolten/data:/app/data babarot/oksskolten \
+  -- docker run -i --rm -v ~/.oksskolten/data:/app/data okotaro/oksskolten \
   npx tsx server/chat/mcp-server.ts
 ```
 
@@ -132,7 +132,7 @@ Alternatively, add the following to your Claude Code MCP settings (`~/.claude.js
       "args": [
         "run", "-i", "--rm",
         "-v", "~/.oksskolten/data:/app/data",
-        "babarot/oksskolten",
+        "okotaro/oksskolten",
         "npx", "tsx", "server/chat/mcp-server.ts"
       ]
     }
@@ -149,7 +149,7 @@ Setup on the production server:
 ```bash
 # Install the MCP server (run once)
 claude mcp add --scope user --transport stdio oksskolten \
-  -- docker run -i --rm -v ~/.oksskolten/data:/app/data babarot/oksskolten \
+  -- docker run -i --rm -v ~/.oksskolten/data:/app/data okotaro/oksskolten \
   npx tsx server/chat/mcp-server.ts
 ```
 
@@ -167,7 +167,7 @@ Connect your local Claude Code to a production server's database without SSH-ing
 ```bash
 claude mcp add --scope user --transport stdio oksskolten \
   -- ssh prod-server docker run -i --rm \
-  -v ~/.oksskolten/data:/app/data babarot/oksskolten \
+  -v ~/.oksskolten/data:/app/data okotaro/oksskolten \
   npx tsx server/chat/mcp-server.ts
 ```
 

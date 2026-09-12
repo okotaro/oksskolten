@@ -4,7 +4,7 @@ services:
     build:
       target: runtime
     # Option B: Use pre-built image from GHCR (comment out "build" above and uncomment below)
-    # image: ghcr.io/babarot/oksskolten:latest
+    # image: ghcr.io/okotaro/oksskolten:latest
     command: []
     restart: unless-stopped
     environment:

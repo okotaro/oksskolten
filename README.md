@@ -12,9 +12,9 @@
 -->
 
 <p align="center">
-  <a href="https://github.com/babarot/oksskolten/actions/workflows/test.yaml"><img src="https://github.com/babarot/oksskolten/actions/workflows/test.yaml/badge.svg" alt="Tests" /></a>
-  <a href="https://github.com/babarot/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-server-coverage.json" alt="Server Coverage" /></a>
-  <a href="https://github.com/babarot/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-client-coverage.json" alt="Client Coverage" /></a>
+  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml/badge.svg" alt="Tests" /></a>
+  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-server-coverage.json" alt="Server Coverage" /></a>
+  <a href="https://github.com/okotaro/oksskolten/actions/workflows/test.yaml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/babarot/7de3479899077c477335584e14d51adc/raw/oksskolten-client-coverage.json" alt="Client Coverage" /></a>
 </p>
 
 <p align="center">
@@ -192,7 +192,7 @@ Runs anywhere Docker runs — a home NAS, a Raspberry Pi, or a cloud VM.
 Pre-built multi-architecture Docker images (amd64/arm64) are published to GHCR on every release:
 
 ```bash
-docker pull ghcr.io/babarot/oksskolten:latest
+docker pull ghcr.io/okotaro/oksskolten:latest
 ```
 
 To use the pre-built image instead of building locally, edit `compose.prod.yaml` and swap the `build` directive for the commented-out `image` line, then:
