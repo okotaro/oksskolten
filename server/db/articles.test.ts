@@ -15,6 +15,7 @@ import {
   getRetryArticles,
   getRetryStats,
   markArticlesSeenByRange,
+  markArticlesUnseen,
 } from '../db.js'
 import { createFeed, createCategory, getDb } from '../db.js'
 import { buildArticleConditions } from './articles.js'
@@ -1113,5 +1114,173 @@ describe('markArticlesSeenByRange', () => {
     expect(result!.ids).toHaveLength(1201)
     const remaining = getDb().prepare('SELECT COUNT(*) AS cnt FROM articles WHERE feed_id = ? AND seen_at IS NULL').get(feed.id) as { cnt: number }
     expect(remaining.cnt).toBe(0)
+  })
+})
+
+// --- markArticlesUnseen: 一括既読の取り消し ---
+
+describe('markArticlesUnseen', () => {
+  function stateOf(id: number): { seen_at: string | null; read_at: string | null; score: number } {
+    return getDb().prepare('SELECT seen_at, read_at, score FROM articles WHERE id = ?').get(id) as {
+      seen_at: string | null
+      read_at: string | null
+      score: number
+    }
+  }
+
+  it('既読にした記事の既読日時と読了日時をどちらも消去する', () => {
+    const feed = seedFeed()
+    const a = seedArticle(feed.id, { url: 'https://example.com/a' })
+    const b = seedArticle(feed.id, { url: 'https://example.com/b' })
+    markArticleSeen(a, true)
+    markArticleSeen(b, true)
+
+    const result = markArticlesUnseen([a, b])
+
+    expect(result.updated).toBe(2)
+    expect(stateOf(a).seen_at).toBeNull()
+    expect(stateOf(a).read_at).toBeNull()
+    expect(stateOf(b).seen_at).toBeNull()
+    expect(stateOf(b).read_at).toBeNull()
+  })
+
+  it('読了日時が入っていた記事も既存の単一記事の未読化と同じ最終状態になる', () => {
+    const feed = seedFeed()
+    const single = seedArticle(feed.id, { url: 'https://example.com/single' })
+    const bulk = seedArticle(feed.id, { url: 'https://example.com/bulk' })
+    recordArticleRead(single)
+    recordArticleRead(bulk)
+    expect(stateOf(bulk).read_at).not.toBeNull()
+
+    markArticleSeen(single, false)
+    markArticlesUnseen([bulk])
+
+    const expected = stateOf(single)
+    const actual = stateOf(bulk)
+    expect(actual.seen_at).toBe(expected.seen_at)
+    expect(actual.read_at).toBe(expected.read_at)
+    expect(actual.seen_at).toBeNull()
+    expect(actual.read_at).toBeNull()
+    expect(actual.score).toBeCloseTo(expected.score, 6)
+  })
+
+  it('与えられていない記事は既読日時もスコアも変化しない', () => {
+    const feed = seedFeed()
+    const target = seedArticle(feed.id, { url: 'https://example.com/target' })
+    const untouched = seedArticle(feed.id, { url: 'https://example.com/untouched' })
+    markArticleSeen(target, true)
+    recordArticleRead(untouched)
+    const before = stateOf(untouched)
+
+    markArticlesUnseen([target])
+
+    const after = stateOf(untouched)
+    expect(after.seen_at).toBe(before.seen_at)
+    expect(after.read_at).toBe(before.read_at)
+    expect(after.score).toBe(before.score)
+    expect(after.seen_at).not.toBeNull()
+    expect(stateOf(target).seen_at).toBeNull()
+  })
+
+  it('空の入力では何も更新せず0件を返す', () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id, { url: 'https://example.com/keep' })
+    markArticleSeen(article, true)
+    const before = stateOf(article)
+
+    const result = markArticlesUnseen([])
+
+    expect(result.updated).toBe(0)
+    const after = stateOf(article)
+    expect(after.seen_at).toBe(before.seen_at)
+    expect(after.read_at).toBe(before.read_at)
+    expect(after.score).toBe(before.score)
+    expect(after.seen_at).not.toBeNull()
+  })
+
+  it('対象記事のスコアを再計算する', () => {
+    const feed = seedFeed()
+    const readOnly = seedArticle(feed.id, { url: 'https://example.com/read-only' })
+    const liked = seedArticle(feed.id, { url: 'https://example.com/liked' })
+    recordArticleRead(readOnly)
+    markArticleLiked(liked, true)
+    recordArticleRead(liked)
+
+    const readOnlyBefore = stateOf(readOnly).score
+    const likedBefore = stateOf(liked).score
+    expect(readOnlyBefore).toBeGreaterThan(0)
+    expect(likedBefore).toBeGreaterThan(0)
+
+    markArticlesUnseen([readOnly, liked])
+
+    // 読了日時だけが加点要素だった記事はスコアが 0 に戻る
+    expect(stateOf(readOnly).score).toBe(0)
+    // いいねが残る記事はスコアが 0 にはならないが、減衰の基準が変わるため値は変化する
+    const likedAfter = stateOf(liked).score
+    expect(likedAfter).toBeGreaterThan(0)
+    expect(likedAfter).not.toBe(likedBefore)
+  })
+
+  it('存在しないIDは無視して実在する記事だけを未読に戻す', () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id, { url: 'https://example.com/exists' })
+    markArticleSeen(article, true)
+
+    const result = markArticlesUnseen([999999, article, 1000000])
+
+    expect(result.updated).toBe(1)
+    expect(stateOf(article).seen_at).toBeNull()
+  })
+
+  it('削除済みの記事は対象に含めず未読に戻さない', () => {
+    const feed = seedFeed()
+    const purged = seedArticle(feed.id, { url: 'https://example.com/purged' })
+    const active = seedArticle(feed.id, { url: 'https://example.com/active' })
+    markArticleSeen(purged, true)
+    markArticleSeen(active, true)
+    getDb().prepare("UPDATE articles SET purged_at = datetime('now') WHERE id = ?").run(purged)
+
+    const result = markArticlesUnseen([purged, active])
+
+    expect(result.updated).toBe(1)
+    expect(stateOf(active).seen_at).toBeNull()
+    expect(stateOf(purged).seen_at).not.toBeNull()
+  })
+
+  it('多数の記事を一度の呼び出しでまとめて未読に戻す', () => {
+    const feed = seedFeed()
+    const ids: number[] = []
+    for (let i = 0; i < 2100; i++) {
+      ids.push(seedArticle(feed.id, { url: `https://example.com/mass/${i}` }))
+    }
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now'), read_at = datetime('now') WHERE feed_id = ?").run(feed.id)
+
+    const result = markArticlesUnseen(ids)
+
+    expect(result.updated).toBe(2100)
+    const remaining = getDb().prepare(
+      'SELECT COUNT(*) AS cnt FROM articles WHERE feed_id = ? AND (seen_at IS NOT NULL OR read_at IS NOT NULL)',
+    ).get(feed.id) as { cnt: number }
+    expect(remaining.cnt).toBe(0)
+  })
+
+  it('パラメータ数上限を超えるID数でも一度の呼び出しで処理できる', () => {
+    const feed = seedFeed()
+    const real = [
+      seedArticle(feed.id, { url: 'https://example.com/huge/1' }),
+      seedArticle(feed.id, { url: 'https://example.com/huge/2' }),
+    ]
+    markArticleSeen(real[0], true)
+    markArticleSeen(real[1], true)
+    // SQLite の SQL 変数上限(この環境では 32766)を確実に超える件数を渡す。
+    // 分割していなければ "too many SQL variables" で失敗する。
+    const missing = Array.from({ length: 40000 }, (_, i) => 1_000_000 + i)
+    const ids = [...real, ...missing]
+
+    const result = markArticlesUnseen(ids)
+
+    expect(result.updated).toBe(2)
+    expect(stateOf(real[0]).seen_at).toBeNull()
+    expect(stateOf(real[1]).seen_at).toBeNull()
   })
 })

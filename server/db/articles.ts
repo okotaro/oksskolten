@@ -423,6 +423,58 @@ export function markArticlesSeenByRange(
   return { updated: ids.length, ids }
 }
 
+/** Max ids per IN clause so the statement never hits the libsql parameter limit. */
+const UNSEEN_BATCH = 500
+
+/**
+ * Mark the given articles as unread again, undoing a bulk mark-as-read.
+ *
+ * Both seen_at and read_at are cleared, matching the state transition of the
+ * single article path markArticleSeen(id, false). The score expression reads
+ * read_at, so the score has to be recomputed for every affected article.
+ *
+ * The update and the score recalculation share one transaction, so a failure
+ * never leaves part of the set unread. Ids that do not resolve to an existing,
+ * non-purged article are ignored. The id set is chunked internally, so the
+ * caller never has to split a request to stay under the parameter limit.
+ */
+export function markArticlesUnseen(ids: number[]): { updated: number } {
+  if (ids.length === 0) return { updated: 0 }
+  const db = getDb()
+
+  const affected = db.transaction(() => {
+    const resolved: number[] = []
+    for (let i = 0; i < ids.length; i += UNSEEN_BATCH) {
+      const batch = ids.slice(i, i + UNSEEN_BATCH)
+      const placeholders = batch.map(() => '?').join(',')
+      const rows = db.prepare(
+        `SELECT id FROM active_articles WHERE id IN (${placeholders})`,
+      ).all(...batch) as { id: number }[]
+      for (const row of rows) resolved.push(row.id)
+    }
+
+    for (let i = 0; i < resolved.length; i += UNSEEN_BATCH) {
+      const batch = resolved.slice(i, i + UNSEEN_BATCH)
+      const placeholders = batch.map(() => '?').join(',')
+      db.prepare(
+        `UPDATE articles SET seen_at = NULL, read_at = NULL WHERE id IN (${placeholders})`,
+      ).run(...batch)
+    }
+    // Recomputed only after read_at is cleared: an UPDATE evaluates its
+    // expressions against the pre-update row, so the score needs its own pass.
+    for (const id of resolved) updateScoreDb(id)
+
+    return resolved
+  })()
+
+  if (affected.length > 0) {
+    syncArticleFiltersToSearch(affected.map(id => ({ id, is_unread: true })))
+    for (const id of affected) syncScoreToSearch(id)
+  }
+
+  return { updated: affected.length }
+}
+
 export function markArticleLiked(
   id: number,
   liked: boolean,
