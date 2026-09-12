@@ -684,30 +684,81 @@ describe('POST /api/articles/batch-unseen', () => {
   })
 })
 
+// A distinct, fixed pair of timestamps for an article that was already read
+// before the bulk operation. Fixed values make any rewrite by the round trip
+// visible down to the character.
+const PRIOR_SEEN_AT = '2024-06-01T00:00:00Z'
+const PRIOR_READ_AT = '2024-06-02T03:04:05Z'
+
+interface ReadState {
+  seen_at: string | null
+  read_at: string | null
+}
+
+function readStateOf(id: number): ReadState {
+  // Projected field by field: the driver attaches bookkeeping keys to the raw
+  // row, so comparing whole rows would compare query timings, not read state.
+  const row = getDb().prepare('SELECT seen_at, read_at FROM active_articles WHERE id = ?').get(id) as ReadState
+  return { seen_at: row.seen_at, read_at: row.read_at }
+}
+
+function readStatesOf(ids: Record<string, number>): Record<string, ReadState> {
+  return Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, readStateOf(id)]))
+}
+
+function markReadBeforeOperation(id: number) {
+  getDb().prepare('UPDATE articles SET seen_at = ?, read_at = ? WHERE id = ?').run(PRIOR_SEEN_AT, PRIOR_READ_AT, id)
+}
+
+/**
+ * Fixture for the round trip: a target feed holding unread articles above and
+ * below the anchor plus one article that was already read before the
+ * operation, and a second feed that the scoped operation must never touch.
+ */
+function seedRoundTripFixture() {
+  const feed = seedFeed()
+  const otherFeed = seedFeed({ url: 'https://other.example.com' })
+
+  const ids = {
+    // Older than the anchor: outside the 'newer' range.
+    oldestUnread: seedArticle(feed.id, { published_at: '2025-01-01T00:00:00Z', title: 'oldest unread' }),
+    olderRead: seedArticle(feed.id, { published_at: '2025-01-01T12:00:00Z', title: 'older already read' }),
+    // The anchor itself and everything newer: inside the range.
+    anchor: seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z', title: 'anchor' }),
+    sameDate: seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z', title: 'same published_at as anchor' }),
+    newerUnread: seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z', title: 'newer unread' }),
+    newerRead: seedArticle(feed.id, { published_at: '2025-01-04T00:00:00Z', title: 'newer already read' }),
+    // Another feed: out of scope regardless of published_at.
+    otherFeedUnread: seedArticle(otherFeed.id, { published_at: '2025-01-03T00:00:00Z', title: 'other feed unread' }),
+  }
+
+  markReadBeforeOperation(ids.olderRead)
+  markReadBeforeOperation(ids.newerRead)
+
+  return { feed, otherFeed, ids }
+}
+
+function rangeSeen(anchorId: number, feedId: number, scope: Record<string, unknown> = {}) {
+  return app.inject({
+    method: 'POST',
+    url: '/api/articles/range-seen',
+    headers: json,
+    payload: { anchor_id: anchorId, direction: 'newer', scope: { feed_id: feedId, ...scope } },
+  })
+}
+
 describe('range-seen followed by batch-unseen', () => {
-  it('restores the exact read state that existed before the range operation', async () => {
-    const feed = seedFeed()
-    const older = seedArticle(feed.id, { published_at: '2025-01-01T00:00:00Z' })
-    const anchor = seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z' })
-    const newer = seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z' })
-    const alreadyRead = seedArticle(feed.id, { published_at: '2025-01-04T00:00:00Z' })
-    markArticleSeen(alreadyRead, true)
+  it('restores the exact seen_at and read_at of every article after the round trip', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+    const before = readStatesOf(ids)
 
-    const before = {
-      older: seenAtOf(older),
-      anchor: seenAtOf(anchor),
-      newer: seenAtOf(newer),
-      alreadyRead: seenAtOf(alreadyRead),
-    }
-
-    const seenRes = await app.inject({
-      method: 'POST',
-      url: '/api/articles/range-seen',
-      headers: json,
-      payload: { anchor_id: anchor, direction: 'newer', scope: { feed_id: feed.id } },
-    })
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
     expect(seenRes.statusCode).toBe(200)
-    expect(seenRes.json().updated).toBe(2)
+    expect([...seenRes.json().ids].sort()).toEqual([ids.anchor, ids.sameDate, ids.newerUnread].sort())
+    expect(seenRes.json().updated).toBe(3)
+    // The operation really did change state, so the comparison below is not
+    // trivially satisfied by nothing having happened.
+    expect(readStateOf(ids.anchor).seen_at).not.toBeNull()
 
     const undoRes = await app.inject({
       method: 'POST',
@@ -716,11 +767,70 @@ describe('range-seen followed by batch-unseen', () => {
       payload: { ids: seenRes.json().ids },
     })
     expect(undoRes.statusCode).toBe(200)
-    expect(undoRes.json().updated).toBe(2)
+    expect(undoRes.json().updated).toBe(3)
 
-    expect(seenAtOf(older)).toBe(before.older)
-    expect(seenAtOf(anchor)).toBe(before.anchor)
-    expect(seenAtOf(newer)).toBe(before.newer)
-    expect(seenAtOf(alreadyRead)).toBe(before.alreadyRead)
+    expect(readStatesOf(ids)).toEqual(before)
+    expect(before.anchor).toEqual({ seen_at: null, read_at: null })
+    expect(before.newerRead).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+  })
+
+  it('leaves the articles that were already read before the operation untouched', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
+    expect(seenRes.statusCode).toBe(200)
+    // Already-read articles are absent from the response ids, so the undo has
+    // no way of flipping them back to unread.
+    expect(seenRes.json().ids).not.toContain(ids.newerRead)
+    expect(seenRes.json().ids).not.toContain(ids.olderRead)
+    expect(readStateOf(ids.newerRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: seenRes.json().ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+
+    expect(readStateOf(ids.newerRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+    expect(readStateOf(ids.olderRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+    // Out of range and out of scope articles stay unread throughout.
+    expect(readStateOf(ids.oldestUnread)).toEqual({ seen_at: null, read_at: null })
+    expect(readStateOf(ids.otherFeedUnread)).toEqual({ seen_at: null, read_at: null })
+  })
+
+  it('excludes the newly read articles from an unread-filtered list fetch', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+
+    const unreadBefore = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadBefore.json().articles.map((a: { id: number }) => a.id).sort())
+      .toEqual([ids.oldestUnread, ids.anchor, ids.sameDate, ids.newerUnread].sort())
+
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
+    expect(seenRes.statusCode).toBe(200)
+
+    const unreadAfter = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadAfter.statusCode).toBe(200)
+    const remaining = unreadAfter.json().articles.map((a: { id: number }) => a.id)
+    expect(remaining).not.toContain(ids.anchor)
+    expect(remaining).not.toContain(ids.sameDate)
+    expect(remaining).not.toContain(ids.newerUnread)
+    // The article older than the anchor was never a target and stays unread.
+    expect(remaining).toEqual([ids.oldestUnread])
+    expect(unreadAfter.json().total).toBe(1)
+
+    // The undo puts them back into the unread list.
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: seenRes.json().ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+
+    const unreadRestored = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadRestored.json().articles.map((a: { id: number }) => a.id).sort())
+      .toEqual(unreadBefore.json().articles.map((a: { id: number }) => a.id).sort())
   })
 })
