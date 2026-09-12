@@ -14,6 +14,7 @@ import {
   recalculateScores,
   getRetryArticles,
   getRetryStats,
+  markArticlesSeenByRange,
 } from '../db.js'
 import { createFeed, createCategory, getDb } from '../db.js'
 import { buildArticleConditions } from './articles.js'
@@ -885,5 +886,232 @@ describe('buildArticleConditions', () => {
   it('smart floor の条件は含めない', () => {
     const { conditions } = buildArticleConditions({ feedId: 1, unread: true })
     expect(conditions.some(c => c.includes('@smartFloorDate'))).toBe(false)
+  })
+})
+
+// --- markArticlesSeenByRange: 方向述語と対象の決定 ---
+
+describe('markArticlesSeenByRange', () => {
+  function seenAtOf(id: number): string | null {
+    return (getDb().prepare('SELECT seen_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null }).seen_at
+  }
+
+  function readAtOf(id: number): string | null {
+    return (getDb().prepare('SELECT read_at FROM articles WHERE id = ?').get(id) as { read_at: string | null }).read_at
+  }
+
+  function setSeenAt(id: number, at: string) {
+    getDb().prepare('UPDATE articles SET seen_at = ? WHERE id = ?').run(at, id)
+  }
+
+  function purge(id: number) {
+    getDb().prepare("UPDATE articles SET purged_at = datetime('now') WHERE id = ?").run(id)
+  }
+
+  it('公開日時ありの基準記事で上方向は基準自身と新しい記事だけを既読にする', () => {
+    const feed = seedFeed()
+    const older = seedArticle(feed.id, { url: 'https://example.com/older', published_at: '2025-01-01T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const newer = seedArticle(feed.id, { url: 'https://example.com/newer', published_at: '2025-01-03T00:00:00Z' })
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result).toBeDefined()
+    expect(result!.ids.sort()).toEqual([anchor, newer].sort())
+    expect(result!.updated).toBe(2)
+    expect(seenAtOf(anchor)).not.toBeNull()
+    expect(seenAtOf(newer)).not.toBeNull()
+    expect(seenAtOf(older)).toBeNull()
+  })
+
+  it('公開日時ありの基準記事で下方向は基準自身と古い記事だけを既読にする', () => {
+    const feed = seedFeed()
+    const older = seedArticle(feed.id, { url: 'https://example.com/older', published_at: '2025-01-01T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const newer = seedArticle(feed.id, { url: 'https://example.com/newer', published_at: '2025-01-03T00:00:00Z' })
+
+    const result = markArticlesSeenByRange(anchor, 'older', { feed_id: feed.id })
+
+    expect(result!.ids.sort()).toEqual([anchor, older].sort())
+    expect(seenAtOf(anchor)).not.toBeNull()
+    expect(seenAtOf(older)).not.toBeNull()
+    expect(seenAtOf(newer)).toBeNull()
+  })
+
+  it('公開日時が基準と同値の記事は上方向でも下方向でも対象に含まれる', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const same = seedArticle(feed.id, { url: 'https://example.com/same', published_at: '2025-01-02T00:00:00Z' })
+
+    const upward = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+    expect(upward!.ids.sort()).toEqual([anchor, same].sort())
+
+    getDb().prepare('UPDATE articles SET seen_at = NULL WHERE id IN (?, ?)').run(anchor, same)
+
+    const downward = markArticlesSeenByRange(anchor, 'older', { feed_id: feed.id })
+    expect(downward!.ids.sort()).toEqual([anchor, same].sort())
+  })
+
+  it('公開日時なしの記事は下方向では対象、上方向では対象外になる', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const noDate = seedArticle(feed.id, { url: 'https://example.com/nodate', published_at: null })
+
+    const upward = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+    expect(upward!.ids).toEqual([anchor])
+    expect(seenAtOf(noDate)).toBeNull()
+
+    getDb().prepare('UPDATE articles SET seen_at = NULL WHERE id = ?').run(anchor)
+
+    const downward = markArticlesSeenByRange(anchor, 'older', { feed_id: feed.id })
+    expect(downward!.ids.sort()).toEqual([anchor, noDate].sort())
+  })
+
+  it('基準記事の公開日時が未設定なら上方向は絞り込み内の全件を対象にする', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: null })
+    const dated = seedArticle(feed.id, { url: 'https://example.com/dated', published_at: '2025-01-05T00:00:00Z' })
+    const otherNoDate = seedArticle(feed.id, { url: 'https://example.com/nodate2', published_at: null })
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result!.ids.sort()).toEqual([anchor, dated, otherNoDate].sort())
+  })
+
+  it('基準記事の公開日時が未設定なら下方向は公開日時なしの記事のみを対象にする', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: null })
+    const dated = seedArticle(feed.id, { url: 'https://example.com/dated', published_at: '2025-01-05T00:00:00Z' })
+    const otherNoDate = seedArticle(feed.id, { url: 'https://example.com/nodate2', published_at: null })
+
+    const result = markArticlesSeenByRange(anchor, 'older', { feed_id: feed.id })
+
+    expect(result!.ids.sort()).toEqual([anchor, otherNoDate].sort())
+    expect(seenAtOf(dated)).toBeNull()
+  })
+
+  it('フィード絞り込みの外にある記事は既読にしない', () => {
+    const feed = seedFeed()
+    const other = seedFeed({ name: 'Other', url: 'https://other.example.com' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const outside = seedArticle(other.id, { url: 'https://other.example.com/1', published_at: '2025-01-03T00:00:00Z' })
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result!.ids).toEqual([anchor])
+    expect(seenAtOf(outside)).toBeNull()
+  })
+
+  it('カテゴリ絞り込みの外にある記事は既読にしない', () => {
+    const category = createCategory('Tech')
+    const otherCategory = createCategory('Life')
+    const feed = seedFeed({ category_id: category.id })
+    const otherFeed = seedFeed({ name: 'Other', url: 'https://other.example.com', category_id: otherCategory.id })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const outside = seedArticle(otherFeed.id, { url: 'https://other.example.com/1', published_at: '2025-01-03T00:00:00Z' })
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { category_id: category.id })
+
+    expect(result!.ids).toEqual([anchor])
+    expect(seenAtOf(outside)).toBeNull()
+  })
+
+  it('操作前から既読の記事は既読日時を変えず戻り値のIDにも含めない', () => {
+    const feed = seedFeed()
+    const alreadySeen = seedArticle(feed.id, { url: 'https://example.com/seen', published_at: '2025-01-03T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    setSeenAt(alreadySeen, '2024-06-01 00:00:00')
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result!.ids).toEqual([anchor])
+    expect(result!.updated).toBe(1)
+    expect(seenAtOf(alreadySeen)).toBe('2024-06-01 00:00:00')
+  })
+
+  it('削除済みの記事は対象に含めず既読にしない', () => {
+    const feed = seedFeed()
+    const purged = seedArticle(feed.id, { url: 'https://example.com/purged', published_at: '2025-01-03T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    purge(purged)
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result!.ids).toEqual([anchor])
+    expect(seenAtOf(purged)).toBeNull()
+  })
+
+  it('基準記事が存在しなければ undefined を返し何も更新しない', () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id, { url: 'https://example.com/1', published_at: '2025-01-02T00:00:00Z' })
+
+    const result = markArticlesSeenByRange(999999, 'newer', { feed_id: feed.id })
+
+    expect(result).toBeUndefined()
+    expect(seenAtOf(article)).toBeNull()
+  })
+
+  it('基準記事が削除済みなら undefined を返し何も更新しない', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const other = seedArticle(feed.id, { url: 'https://example.com/other', published_at: '2025-01-03T00:00:00Z' })
+    purge(anchor)
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result).toBeUndefined()
+    expect(seenAtOf(other)).toBeNull()
+  })
+
+  it('一括既読では read_at を設定しない', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    const newer = seedArticle(feed.id, { url: 'https://example.com/newer', published_at: '2025-01-03T00:00:00Z' })
+
+    markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(readAtOf(anchor)).toBeNull()
+    expect(readAtOf(newer)).toBeNull()
+  })
+
+  it('表示範囲の下限より古い記事も下方向の対象に含める', () => {
+    const feed = seedFeed()
+    for (let i = 0; i < 25; i++) {
+      seedArticle(feed.id, { url: `https://example.com/recent/${i}`, published_at: new Date(Date.now() - i * 60 * 1000).toISOString() })
+    }
+    const ancient = seedArticle(feed.id, { url: 'https://example.com/ancient', published_at: '2015-01-01T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() })
+
+    const result = markArticlesSeenByRange(anchor, 'older', { feed_id: feed.id })
+
+    expect(result!.ids).toContain(ancient)
+    expect(seenAtOf(ancient)).not.toBeNull()
+  })
+
+  it('未読のみの絞り込み指定でも既読済みを除いた未読だけを対象にする', () => {
+    const feed = seedFeed()
+    const seen = seedArticle(feed.id, { url: 'https://example.com/seen', published_at: '2025-01-03T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-02T00:00:00Z' })
+    setSeenAt(seen, '2024-06-01 00:00:00')
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id, unread: true })
+
+    expect(result!.ids).toEqual([anchor])
+    expect(result!.updated).toBe(result!.ids.length)
+  })
+
+  it('対象が多数でもパラメータ数上限に依存せず一度で既読にする', () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { url: 'https://example.com/anchor', published_at: '2025-01-01T00:00:00Z' })
+    for (let i = 0; i < 1200; i++) {
+      seedArticle(feed.id, { url: `https://example.com/bulk/${i}`, published_at: '2025-02-01T00:00:00Z' })
+    }
+
+    const result = markArticlesSeenByRange(anchor, 'newer', { feed_id: feed.id })
+
+    expect(result!.updated).toBe(1201)
+    expect(result!.ids).toHaveLength(1201)
+    const remaining = getDb().prepare('SELECT COUNT(*) AS cnt FROM articles WHERE feed_id = ? AND seen_at IS NULL').get(feed.id) as { cnt: number }
+    expect(remaining.cnt).toBe(0)
   })
 })
