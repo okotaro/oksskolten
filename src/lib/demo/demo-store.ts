@@ -3,7 +3,16 @@ import seedArticles from './seed/articles.json'
 import seedConversationsEn from './seed/en/conversations.json'
 import seedConversationsJa from './seed/ja/conversations.json'
 import { getLocale, dt } from './i18n'
-import type { FeedWithCounts, ArticleListItem, ArticleDetail, Category } from '../../../shared/types'
+import type {
+  FeedWithCounts,
+  ArticleListItem,
+  ArticleDetail,
+  Category,
+  BulkReadDirection,
+  BulkReadScope,
+  RangeSeenResponse,
+  BatchUnseenResponse,
+} from '../../../shared/types'
 
 type DemoLocale = ReturnType<typeof getLocale>
 
@@ -407,6 +416,78 @@ export const demoStore = {
       if (!a.seen_at) a.seen_at = now
     })
     return { success: true }
+  },
+
+  /**
+   * Mark every unread article in the range defined by an anchor article and a
+   * direction as read. Mirrors markArticlesSeenByRange in server/db/articles.ts.
+   *
+   * The direction predicate is derived from the anchor's published_at (D):
+   *
+   *   D          direction   extra condition
+   *   not null   newer       published_at != null && published_at >= D
+   *   not null   older       published_at == null || published_at <= D
+   *   null       newer       none (every article in scope)
+   *   null       older       published_at == null
+   *
+   * Articles without a published date sort to the bottom of the list, so they
+   * count as the oldest. Articles sharing the anchor's exact date are included
+   * in both directions because the list order has no secondary sort key. The
+   * anchor itself satisfies every variant, so it is always included.
+   *
+   * published_at is an ISO 8601 UTC string, so comparing the strings gives the
+   * same ordering as the list query and as the production SQL comparison.
+   *
+   * Returns null when the anchor does not exist; nothing is updated then.
+   */
+  markSeenByRange(
+    anchorId: number,
+    direction: BulkReadDirection,
+    scope: BulkReadScope,
+  ): RangeSeenResponse | null {
+    const anchor = articles.find(a => a.id === anchorId)
+    if (!anchor) return null
+    const anchorDate = anchor.published_at
+
+    let target = articles
+    if (scope.feed_id) target = target.filter(a => a.feed_id === scope.feed_id)
+    if (scope.category_id) {
+      const feedIds = new Set(feeds.filter(f => f.category_id === scope.category_id).map(f => f.id))
+      target = target.filter(a => feedIds.has(a.feed_id))
+    }
+    if (scope.unread) target = target.filter(a => a.seen_at == null)
+
+    if (anchorDate != null) {
+      target = target.filter(a => direction === 'newer'
+        ? (a.published_at != null && a.published_at >= anchorDate)
+        : (a.published_at == null || a.published_at <= anchorDate))
+    } else if (direction === 'older') {
+      target = target.filter(a => a.published_at == null)
+    }
+
+    // Already read articles keep their original seen_at and stay out of ids,
+    // so an undo never touches them.
+    const unread = target.filter(a => a.seen_at == null)
+    const now = new Date().toISOString()
+    for (const a of unread) a.seen_at = now
+
+    return { updated: unread.length, ids: unread.map(a => a.id) }
+  },
+
+  /**
+   * Mark the given articles as unread again, undoing a bulk mark-as-read.
+   * Clears both seen_at and read_at, matching markArticlesUnseen on the server.
+   * Ids that do not resolve to an article are ignored.
+   */
+  batchUnseen(ids: number[]): BatchUnseenResponse {
+    if (ids.length === 0) return { updated: 0 }
+    const idSet = new Set(ids)
+    const matched = articles.filter(a => idSet.has(a.id))
+    for (const a of matched) {
+      a.seen_at = null
+      a.read_at = null
+    }
+    return { updated: matched.length }
   },
 
   toggleBookmark(id: number, bookmarked: boolean) {

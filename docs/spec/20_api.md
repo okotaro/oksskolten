@@ -528,6 +528,32 @@ When `liked` is `false`, returns `{ "liked_at": null }`. Returns `404` if the ar
 Maximum 100 items. Only updates articles where `seen_at IS NULL`.
 
 
+**POST /api/articles/range-seen** — Mark a range as read from an anchor article
+
+```json
+// Request
+{ "anchor_id": 123, "direction": "newer", "scope": { "feed_id": 7 } }
+
+// Response: 200
+{ "updated": 42, "ids": [123, 124, ...] }
+```
+
+`direction` is `"newer"` (target `published_at >= anchor`, or the anchor's `published_at IS NULL`) or `"older"` (target `published_at <= anchor` or `NULL`). `scope` accepts `feed_id`, `category_id`, and `unread` (all optional). Only unread, non-purged articles are affected; already-read articles are excluded from `ids`. No item-count cap — the identifier collection and update are chunked internally. Returns `404` and changes no seen state if the anchor article does not exist or has been purged. See [86_feature_bulk_mark_read.md](./86_feature_bulk_mark_read.md) for the full direction table.
+
+
+**POST /api/articles/batch-unseen** — Undo a `range-seen` operation
+
+```json
+// Request
+{ "ids": [123, 124, 125] }
+
+// Response: 200
+{ "updated": 3 }
+```
+
+Clears both `seen_at` and `read_at` for the given ids and recomputes their score. Maximum 50,000 ids per request. Ids that do not resolve to an existing, non-purged article are ignored.
+
+
 **POST /api/articles/:id/summarize** — Article summary (on-demand)
 
 Returns the cached summary if one already exists. Returns `400` if `full_text` is NULL.

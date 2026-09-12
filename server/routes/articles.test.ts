@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { createFeed, createCategory, insertArticle, markArticleSeen } from '../db.js'
+import { createFeed, createCategory, insertArticle, markArticleSeen, getDb } from '../db.js'
 import type { FastifyInstance } from 'fastify'
 
 // ---------------------------------------------------------------------------
@@ -446,5 +446,391 @@ describe('GET /api/articles?unread=1 — total_all field', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/articles' })
     expect(res.json().total_all).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Bulk mark-as-read: range-seen / batch-unseen
+// ---------------------------------------------------------------------------
+
+function seenAtOf(id: number): string | null {
+  return (getDb().prepare('SELECT seen_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null }).seen_at
+}
+
+function purge(id: number) {
+  getDb().prepare("UPDATE articles SET purged_at = datetime('now') WHERE id = ?").run(id)
+}
+
+describe('POST /api/articles/range-seen', () => {
+  it('marks the anchor and newer articles as read and leaves other feeds untouched', async () => {
+    const feed = seedFeed()
+    const other = seedFeed({ url: 'https://other.com' })
+    const older = seedArticle(feed.id, { published_at: '2025-01-01T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z' })
+    const newer = seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z' })
+    const outside = seedArticle(other.id, { published_at: '2025-01-03T00:00:00Z' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: anchor, direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().updated).toBe(2)
+    expect([...res.json().ids].sort()).toEqual([anchor, newer].sort())
+    expect(seenAtOf(anchor)).not.toBeNull()
+    expect(seenAtOf(newer)).not.toBeNull()
+    expect(seenAtOf(older)).toBeNull()
+    expect(seenAtOf(outside)).toBeNull()
+  })
+
+  it('excludes already-read articles from ids and keeps their seen_at', async () => {
+    const feed = seedFeed()
+    const already = seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z' })
+    const anchor = seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z' })
+    markArticleSeen(already, true)
+    const before = seenAtOf(already)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: anchor, direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().ids).toEqual([anchor])
+    expect(seenAtOf(already)).toBe(before)
+  })
+
+  it('returns 404 for a non-existent anchor and changes no seen_at', async () => {
+    const feed = seedFeed()
+    const a1 = seedArticle(feed.id)
+    const a2 = seedArticle(feed.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: 999999, direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toBe('Article not found')
+    expect(seenAtOf(a1)).toBeNull()
+    expect(seenAtOf(a2)).toBeNull()
+  })
+
+  it('returns 404 for a purged anchor and changes no seen_at', async () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z' })
+    const other = seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z' })
+    purge(anchor)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: anchor, direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toBe('Article not found')
+    expect(seenAtOf(anchor)).toBeNull()
+    expect(seenAtOf(other)).toBeNull()
+  })
+
+  it('returns 400 for an invalid direction and changes no seen_at', async () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id)
+    const other = seedArticle(feed.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: anchor, direction: 'sideways', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(seenAtOf(anchor)).toBeNull()
+    expect(seenAtOf(other)).toBeNull()
+  })
+
+  it('returns 400 for a non-positive anchor_id and changes no seen_at', async () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: 0, direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(seenAtOf(article)).toBeNull()
+  })
+
+  it('returns 400 for a missing anchor_id and changes no seen_at', async () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { direction: 'newer', scope: { feed_id: feed.id } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(seenAtOf(article)).toBeNull()
+  })
+
+  it('returns 400 for a non-positive scope.feed_id', async () => {
+    const feed = seedFeed()
+    const anchor = seedArticle(feed.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/range-seen',
+      headers: json,
+      payload: { anchor_id: anchor, direction: 'newer', scope: { feed_id: -1 } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(seenAtOf(anchor)).toBeNull()
+  })
+})
+
+describe('POST /api/articles/batch-unseen', () => {
+  it('marks the given articles unread', async () => {
+    const feed = seedFeed()
+    const a1 = seedArticle(feed.id)
+    const a2 = seedArticle(feed.id)
+    const untouched = seedArticle(feed.id)
+    markArticleSeen(a1, true)
+    markArticleSeen(a2, true)
+    markArticleSeen(untouched, true)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: [a1, a2] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().updated).toBe(2)
+    expect(seenAtOf(a1)).toBeNull()
+    expect(seenAtOf(a2)).toBeNull()
+    expect(seenAtOf(untouched)).not.toBeNull()
+  })
+
+  it('accepts an empty array and reports zero updates', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: [] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ updated: 0 })
+  })
+
+  it('returns 400 when ids exceed the cap and updates nothing', async () => {
+    const feed = seedFeed()
+    const article = seedArticle(feed.id)
+    markArticleSeen(article, true)
+    const before = seenAtOf(article)
+
+    const ids = [article, ...Array.from({ length: 50_000 }, (_, i) => i + 1_000_000)]
+    expect(ids).toHaveLength(50_001)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(seenAtOf(article)).toBe(before)
+  })
+
+  it('returns 400 for a non-positive id', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: [0] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('returns 400 when ids is missing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+// A distinct, fixed pair of timestamps for an article that was already read
+// before the bulk operation. Fixed values make any rewrite by the round trip
+// visible down to the character.
+const PRIOR_SEEN_AT = '2024-06-01T00:00:00Z'
+const PRIOR_READ_AT = '2024-06-02T03:04:05Z'
+
+interface ReadState {
+  seen_at: string | null
+  read_at: string | null
+}
+
+function readStateOf(id: number): ReadState {
+  // Projected field by field: the driver attaches bookkeeping keys to the raw
+  // row, so comparing whole rows would compare query timings, not read state.
+  const row = getDb().prepare('SELECT seen_at, read_at FROM active_articles WHERE id = ?').get(id) as ReadState
+  return { seen_at: row.seen_at, read_at: row.read_at }
+}
+
+function readStatesOf(ids: Record<string, number>): Record<string, ReadState> {
+  return Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, readStateOf(id)]))
+}
+
+function markReadBeforeOperation(id: number) {
+  getDb().prepare('UPDATE articles SET seen_at = ?, read_at = ? WHERE id = ?').run(PRIOR_SEEN_AT, PRIOR_READ_AT, id)
+}
+
+/**
+ * Fixture for the round trip: a target feed holding unread articles above and
+ * below the anchor plus one article that was already read before the
+ * operation, and a second feed that the scoped operation must never touch.
+ */
+function seedRoundTripFixture() {
+  const feed = seedFeed()
+  const otherFeed = seedFeed({ url: 'https://other.example.com' })
+
+  const ids = {
+    // Older than the anchor: outside the 'newer' range.
+    oldestUnread: seedArticle(feed.id, { published_at: '2025-01-01T00:00:00Z', title: 'oldest unread' }),
+    olderRead: seedArticle(feed.id, { published_at: '2025-01-01T12:00:00Z', title: 'older already read' }),
+    // The anchor itself and everything newer: inside the range.
+    anchor: seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z', title: 'anchor' }),
+    sameDate: seedArticle(feed.id, { published_at: '2025-01-02T00:00:00Z', title: 'same published_at as anchor' }),
+    newerUnread: seedArticle(feed.id, { published_at: '2025-01-03T00:00:00Z', title: 'newer unread' }),
+    newerRead: seedArticle(feed.id, { published_at: '2025-01-04T00:00:00Z', title: 'newer already read' }),
+    // Another feed: out of scope regardless of published_at.
+    otherFeedUnread: seedArticle(otherFeed.id, { published_at: '2025-01-03T00:00:00Z', title: 'other feed unread' }),
+  }
+
+  markReadBeforeOperation(ids.olderRead)
+  markReadBeforeOperation(ids.newerRead)
+
+  return { feed, otherFeed, ids }
+}
+
+function rangeSeen(anchorId: number, feedId: number, scope: Record<string, unknown> = {}) {
+  return app.inject({
+    method: 'POST',
+    url: '/api/articles/range-seen',
+    headers: json,
+    payload: { anchor_id: anchorId, direction: 'newer', scope: { feed_id: feedId, ...scope } },
+  })
+}
+
+describe('range-seen followed by batch-unseen', () => {
+  it('restores the exact seen_at and read_at of every article after the round trip', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+    const before = readStatesOf(ids)
+
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
+    expect(seenRes.statusCode).toBe(200)
+    expect([...seenRes.json().ids].sort()).toEqual([ids.anchor, ids.sameDate, ids.newerUnread].sort())
+    expect(seenRes.json().updated).toBe(3)
+    // The operation really did change state, so the comparison below is not
+    // trivially satisfied by nothing having happened.
+    expect(readStateOf(ids.anchor).seen_at).not.toBeNull()
+
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: seenRes.json().ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+    expect(undoRes.json().updated).toBe(3)
+
+    expect(readStatesOf(ids)).toEqual(before)
+    expect(before.anchor).toEqual({ seen_at: null, read_at: null })
+    expect(before.newerRead).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+  })
+
+  it('leaves the articles that were already read before the operation untouched', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
+    expect(seenRes.statusCode).toBe(200)
+    // Already-read articles are absent from the response ids, so the undo has
+    // no way of flipping them back to unread.
+    expect(seenRes.json().ids).not.toContain(ids.newerRead)
+    expect(seenRes.json().ids).not.toContain(ids.olderRead)
+    expect(readStateOf(ids.newerRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: seenRes.json().ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+
+    expect(readStateOf(ids.newerRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+    expect(readStateOf(ids.olderRead)).toEqual({ seen_at: PRIOR_SEEN_AT, read_at: PRIOR_READ_AT })
+    // Out of range and out of scope articles stay unread throughout.
+    expect(readStateOf(ids.oldestUnread)).toEqual({ seen_at: null, read_at: null })
+    expect(readStateOf(ids.otherFeedUnread)).toEqual({ seen_at: null, read_at: null })
+  })
+
+  it('excludes the newly read articles from an unread-filtered list fetch', async () => {
+    const { feed, ids } = seedRoundTripFixture()
+
+    const unreadBefore = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadBefore.json().articles.map((a: { id: number }) => a.id).sort())
+      .toEqual([ids.oldestUnread, ids.anchor, ids.sameDate, ids.newerUnread].sort())
+
+    const seenRes = await rangeSeen(ids.anchor, feed.id)
+    expect(seenRes.statusCode).toBe(200)
+
+    const unreadAfter = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadAfter.statusCode).toBe(200)
+    const remaining = unreadAfter.json().articles.map((a: { id: number }) => a.id)
+    expect(remaining).not.toContain(ids.anchor)
+    expect(remaining).not.toContain(ids.sameDate)
+    expect(remaining).not.toContain(ids.newerUnread)
+    // The article older than the anchor was never a target and stays unread.
+    expect(remaining).toEqual([ids.oldestUnread])
+    expect(unreadAfter.json().total).toBe(1)
+
+    // The undo puts them back into the unread list.
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids: seenRes.json().ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+
+    const unreadRestored = await app.inject({ method: 'GET', url: `/api/articles?unread=1&feed_id=${feed.id}` })
+    expect(unreadRestored.json().articles.map((a: { id: number }) => a.id).sort())
+      .toEqual(unreadBefore.json().articles.map((a: { id: number }) => a.id).sort())
   })
 })

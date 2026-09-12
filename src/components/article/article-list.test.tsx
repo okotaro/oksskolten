@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
 import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
@@ -44,6 +44,7 @@ vi.mock('../feed/feed-metrics-bar', () => ({
 vi.mock('../../lib/fetcher', () => ({
   fetcher: vi.fn(),
   apiPatch: vi.fn(() => Promise.resolve()),
+  apiPost: vi.fn(() => Promise.resolve({ updated: 0, ids: [] })),
 }))
 
 vi.mock('../../lib/markSeenWithQueue', () => ({
@@ -88,7 +89,9 @@ vi.mock('./swipeable-article-card', () => ({
 
 vi.mock('./article-card', () => ({
   ArticleCard: ({ article }: { article: ArticleListItem }) => (
-    <div data-testid={`article-${article.id}`}>{article.title}</div>
+    <div data-testid={`article-${article.id}`} data-seen={article.seen_at ? '1' : '0'}>
+      {article.title}
+    </div>
   ),
 }))
 
@@ -115,6 +118,12 @@ vi.mock('sonner', () => ({
 }))
 
 import { ArticleList } from './article-list'
+import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
+import { useClipFeedId } from '../../hooks/use-clip-feed-id'
+import { apiPost } from '../../lib/fetcher'
+
+const MENU_LABEL_ABOVE = 'Mark above (newer) as read'
+const MENU_LABEL_BELOW = 'Mark below (older) as read'
 
 function makeArticle(overrides: Partial<ArticleListItem> = {}): ArticleListItem {
   return {
@@ -146,6 +155,7 @@ const mockSettings = {
   setDateMode: vi.fn(),
   autoMarkRead: 'off' as const,
   setAutoMarkRead: vi.fn(),
+  categoryUnreadOnly: 'off' as const,
   showUnreadIndicator: 'on' as const,
   setShowUnreadIndicator: vi.fn(),
   indicatorStyle: 'dot' as const,
@@ -177,6 +187,7 @@ function renderArticleList(initialPath = '/inbox') {
         <Routes>
           <Route element={<OutletWrapper />}>
             <Route path="feeds/:feedId" element={<ArticleList />} />
+            <Route path="categories/:categoryId" element={<ArticleList />} />
             <Route path="*" element={<ArticleList />} />
           </Route>
         </Routes>
@@ -190,6 +201,10 @@ describe('ArticleList', () => {
     vi.clearAllMocks()
     swrFeedsData = undefined
     mockSettings.autoMarkRead = 'off' as any
+    mockSettings.categoryUnreadOnly = 'off' as any
+    vi.mocked(useIsTouchDevice).mockReturnValue(false)
+    vi.mocked(useClipFeedId).mockReturnValue(null)
+    vi.mocked(apiPost).mockResolvedValue({ updated: 0, ids: [] })
     // Stub IntersectionObserver for tests that enable autoMarkRead
     vi.stubGlobal('IntersectionObserver', class {
       constructor() {}
@@ -475,5 +490,173 @@ describe('ArticleList', () => {
     expect(pulses.length).toBeGreaterThan(0)
 
     vi.unstubAllGlobals()
+  })
+
+  // ---------------------------------------------------------------------------
+  // Bulk mark-as-read context menu integration
+  // ---------------------------------------------------------------------------
+
+  function setArticles(articles: ArticleListItem[], mutate = vi.fn()) {
+    swrInfiniteReturn = {
+      data: [{ articles, total: articles.length, has_more: false }],
+      error: undefined,
+      size: 1,
+      setSize: vi.fn(),
+      isLoading: false,
+      isValidating: false,
+      mutate,
+    }
+    return mutate
+  }
+
+  async function openCardMenu(testId: string) {
+    fireEvent.contextMenu(screen.getByTestId(testId))
+    await waitFor(() => {
+      expect(screen.getByRole('menu')).toBeTruthy()
+    })
+  }
+
+  async function expectNoMenu(testId: string) {
+    fireEvent.contextMenu(screen.getByTestId(testId))
+    // Give Radix a real macrotask to open, so the absence is meaningful.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.queryByText(MENU_LABEL_ABOVE)).toBeNull()
+    expect(screen.queryByText(MENU_LABEL_BELOW)).toBeNull()
+  }
+
+  const menuViews = [
+    { name: 'inbox shows the bulk mark-as-read menu', path: '/inbox', setup: () => {} },
+    { name: 'feed view shows the bulk mark-as-read menu', path: '/feeds/1', setup: () => {} },
+    {
+      name: 'clip list shows the bulk mark-as-read menu',
+      path: '/clips',
+      setup: () => { vi.mocked(useClipFeedId).mockReturnValue(7) },
+    },
+    { name: 'category view shows the bulk mark-as-read menu', path: '/categories/3', setup: () => {} },
+  ]
+
+  it.each(menuViews)('$name', async ({ path, setup }) => {
+    setup()
+    setArticles([makeArticle({ id: 1, title: 'Anchor' })])
+    renderArticleList(path)
+
+    await openCardMenu('article-1')
+
+    expect(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: MENU_LABEL_BELOW })).toBeTruthy()
+  })
+
+  const menulessViews = [
+    { name: 'bookmarks view has no bulk mark-as-read menu', path: '/bookmarks' },
+    { name: 'favorites view has no bulk mark-as-read menu', path: '/likes' },
+    { name: 'read-articles view has no bulk mark-as-read menu', path: '/history' },
+  ]
+
+  it.each(menulessViews)('$name', async ({ path }) => {
+    setArticles([makeArticle({ id: 1, title: 'Anchor' })])
+    renderArticleList(path)
+
+    await expectNoMenu('article-1')
+  })
+
+  it('touch devices have no bulk mark-as-read menu', async () => {
+    vi.mocked(useIsTouchDevice).mockReturnValue(true)
+    setArticles([makeArticle({ id: 1, title: 'Anchor' })])
+    renderArticleList('/inbox')
+
+    await expectNoMenu('swipeable-1')
+  })
+
+  const scopeCases = [
+    {
+      name: 'inbox sends the unread-only filter as the bulk scope',
+      path: '/inbox',
+      setup: () => {},
+      scope: { unread: true },
+    },
+    {
+      name: 'feed view sends the feed id as the bulk scope',
+      path: '/feeds/1',
+      setup: () => {},
+      scope: { feed_id: 1 },
+    },
+    {
+      name: 'clip list sends the resolved clip feed id as the bulk scope',
+      path: '/clips',
+      setup: () => { vi.mocked(useClipFeedId).mockReturnValue(7) },
+      scope: { feed_id: 7 },
+    },
+    {
+      name: 'category view sends the category id and its unread-only setting as the bulk scope',
+      path: '/categories/3',
+      setup: () => { mockSettings.categoryUnreadOnly = 'on' as any },
+      scope: { category_id: 3, unread: true },
+    },
+  ]
+
+  it.each(scopeCases)('$name', async ({ path, setup, scope }) => {
+    setup()
+    setArticles([makeArticle({ id: 42, title: 'Anchor' })])
+    renderArticleList(path)
+
+    await openCardMenu('article-42')
+    fireEvent.click(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE }))
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith('/api/articles/range-seen', {
+        anchor_id: 42,
+        direction: 'newer',
+        scope,
+      })
+    })
+  })
+
+  it('keeps bulk-marked articles in place with the read look while unread-only is active', async () => {
+    vi.mocked(apiPost).mockResolvedValue({ updated: 2, ids: [1, 2] })
+    const listMutate = setArticles([
+      makeArticle({ id: 1, title: 'Newest', published_at: '2026-01-03T00:00:00Z' }),
+      makeArticle({ id: 2, title: 'Anchor', published_at: '2026-01-02T00:00:00Z' }),
+      makeArticle({ id: 3, title: 'Older', published_at: '2026-01-01T00:00:00Z' }),
+    ])
+    // The inbox is always filtered to unread only.
+    renderArticleList('/inbox')
+
+    await openCardMenu('article-2')
+    fireEvent.click(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('article-1').getAttribute('data-seen')).toBe('1')
+    })
+    // Still present, in the same order, rendered as read rather than removed.
+    expect(screen.getByTestId('article-2').getAttribute('data-seen')).toBe('1')
+    expect(screen.getByTestId('article-3').getAttribute('data-seen')).toBe('0')
+    expect(document.querySelector('[data-article-id="1"]')?.getAttribute('data-article-unread')).toBe('0')
+    expect(document.querySelector('[data-article-id="2"]')?.getAttribute('data-article-unread')).toBe('0')
+    expect(document.querySelector('[data-article-id="3"]')?.getAttribute('data-article-unread')).toBe('1')
+    expect(document.querySelectorAll('[data-article-id]').length).toBe(3)
+    // The article list itself must not be refetched, or the rows would vanish.
+    expect(listMutate).not.toHaveBeenCalled()
+  })
+
+  it('disables only the direction that is in flight', async () => {
+    let resolveRequest: (value: unknown) => void = () => {}
+    vi.mocked(apiPost).mockReturnValue(new Promise(resolve => { resolveRequest = resolve }))
+    setArticles([makeArticle({ id: 5, title: 'Anchor' })])
+    renderArticleList('/inbox')
+
+    await openCardMenu('article-5')
+    fireEvent.click(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE }))
+
+    await openCardMenu('article-5')
+    expect(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('menuitem', { name: MENU_LABEL_BELOW }).hasAttribute('data-disabled')).toBe(false)
+
+    await act(async () => {
+      resolveRequest({ updated: 0, ids: [] })
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
   })
 })

@@ -34,6 +34,13 @@ describe('useI18n', () => {
     expect(text).not.toContain('${name}')
   })
 
+  it('replaces the count parameter in the bulk mark-read toast', () => {
+    const { result } = renderHook(() => useI18n(), { wrapper: makeWrapper('en') })
+    const text = result.current.t('toast.bulkMarkedRead', { count: '5' })
+    expect(text).toContain('5')
+    expect(text).not.toContain('${count}')
+  })
+
   it('exposes locale value', () => {
     const { result } = renderHook(() => useI18n(), { wrapper: makeWrapper('ja') })
     expect(result.current.locale).toBe('ja')

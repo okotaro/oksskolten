@@ -1,5 +1,6 @@
 import { getDb, runNamed, getNamed, allNamed } from './connection.js'
 import type { Article, ArticleListItem, ArticleDetail } from './types.js'
+import type { BulkReadDirection, BulkReadScope } from '../../shared/types.js'
 import type { MeiliArticleDoc } from '../search/client.js'
 import { syncArticleToSearch, deleteArticleFromSearch, deleteArticlesFromSearch, syncArticleScoreToSearch, syncArticleFiltersToSearch } from '../search/sync.js'
 import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
@@ -87,20 +88,33 @@ export function recalculateScores(): { updated: number } {
 
 // --- Article list queries ---
 
-export function getArticles(opts: {
+/** Filters that narrow an article list query. Every field is optional. */
+export interface ArticleFilterOptions {
   feedId?: number
   categoryId?: number
   unread?: boolean
   bookmarked?: boolean
   liked?: boolean
   read?: boolean
-  sort?: 'score'
-  limit: number
-  offset: number
-  smartFloor?: boolean
-}): { articles: ArticleListItem[]; total: number; totalWithoutFloor?: number } {
+}
+
+export interface ArticleConditions {
+  /** Condition expressions to join with AND. The table alias is always 'a.'. */
+  conditions: string[]
+  /** Named bind values matching the @name placeholders inside conditions. */
+  params: Record<string, number>
+}
+
+/**
+ * Build the article filter conditions shared by the list query and the bulk
+ * mark-as-read target selection. Stateless and free of DB access.
+ *
+ * The smart floor is deliberately NOT handled here: it narrows the displayed
+ * range only, so the floor date is computed and applied by getArticles alone.
+ */
+export function buildArticleConditions(opts: ArticleFilterOptions): ArticleConditions {
   const conditions: string[] = []
-  const params: Record<string, unknown> = {}
+  const params: Record<string, number> = {}
 
   if (opts.feedId) {
     conditions.push('a.feed_id = @feedId')
@@ -122,6 +136,26 @@ export function getArticles(opts: {
   if (opts.read) {
     conditions.push('a.read_at IS NOT NULL')
   }
+
+  return { conditions, params }
+}
+
+export function getArticles(opts: {
+  feedId?: number
+  categoryId?: number
+  unread?: boolean
+  bookmarked?: boolean
+  liked?: boolean
+  read?: boolean
+  sort?: 'score'
+  limit: number
+  offset: number
+  smartFloor?: boolean
+}): { articles: ArticleListItem[]; total: number; totalWithoutFloor?: number } {
+  const built = buildArticleConditions(opts)
+  const conditions: string[] = built.conditions
+  // Copy: the smart floor below adds a non-numeric bind value.
+  const params: Record<string, unknown> = { ...built.params }
 
   // Smart floor: limit the displayed range to keep lists manageable.
   // Pick the floor that yields the MOST articles (= earliest date) among:
@@ -292,6 +326,153 @@ export function markAllSeenByFeed(feedId: number): { updated: number } {
     syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
   }
   return { updated: result.changes }
+}
+
+/** Result of a bulk mark-as-read over a range. */
+export interface RangeSeenResult {
+  /** Number of articles newly marked as read. Always equal to ids.length. */
+  updated: number
+  /** IDs of the articles newly marked as read, for a later undo. */
+  ids: number[]
+}
+
+/** Max ids per IN clause so the statement never hits the SQLite parameter limit. */
+const RANGE_SEEN_BATCH = 500
+
+/**
+ * Mark every unread article in the range defined by an anchor article and a
+ * direction as read.
+ *
+ * The direction predicate is derived from the anchor's published_at (D):
+ *
+ *   D          direction   extra condition
+ *   not NULL   newer       published_at IS NOT NULL AND published_at >= D
+ *   not NULL   older       published_at IS NULL OR published_at <= D
+ *   NULL       newer       none (every article in scope)
+ *   NULL       older       published_at IS NULL
+ *
+ * Articles without a published date sort to the bottom of the list, so they
+ * count as the oldest. Articles sharing the anchor's exact date are included in
+ * both directions because the list order has no secondary sort key. The anchor
+ * itself satisfies every variant, so it is always included.
+ *
+ * The smart floor is deliberately not applied: it narrows the displayed range
+ * only, never the bulk mark-as-read target set.
+ *
+ * Returns undefined when the anchor does not exist or has been purged; in that
+ * case nothing is updated at all.
+ */
+export function markArticlesSeenByRange(
+  anchorId: number,
+  direction: BulkReadDirection,
+  scope: BulkReadScope,
+): RangeSeenResult | undefined {
+  const db = getDb()
+
+  const anchor = db.prepare(
+    'SELECT published_at FROM active_articles WHERE id = ?',
+  ).get(anchorId) as { published_at: string | null } | undefined
+  if (!anchor) return undefined
+
+  const built = buildArticleConditions({
+    feedId: scope.feed_id,
+    categoryId: scope.category_id,
+    unread: scope.unread,
+  })
+  const conditions = [...built.conditions]
+  const params: Record<string, string | number> = { ...built.params }
+
+  if (anchor.published_at !== null) {
+    params.anchorDate = anchor.published_at
+    conditions.push(direction === 'newer'
+      ? '(a.published_at IS NOT NULL AND a.published_at >= @anchorDate)'
+      : '(a.published_at IS NULL OR a.published_at <= @anchorDate)')
+  } else if (direction === 'older') {
+    conditions.push('a.published_at IS NULL')
+  }
+
+  // Only unread articles are affected; active_articles already excludes purged rows.
+  conditions.push('a.seen_at IS NULL')
+
+  // Collecting the ids and updating them must stay in one transaction: another
+  // mark-as-read slipping in between would leave the returned ids out of sync
+  // with the rows actually updated, and the undo would then touch the wrong
+  // articles.
+  const ids = db.transaction(() => {
+    const rows = allNamed<{ id: number }>(`
+      SELECT a.id FROM active_articles a
+      WHERE ${conditions.join(' AND ')}
+    `, params)
+    const collected = rows.map(r => r.id)
+
+    for (let i = 0; i < collected.length; i += RANGE_SEEN_BATCH) {
+      const batch = collected.slice(i, i + RANGE_SEEN_BATCH)
+      const placeholders = batch.map(() => '?').join(',')
+      db.prepare(
+        `UPDATE articles SET seen_at = datetime('now') WHERE id IN (${placeholders}) AND seen_at IS NULL`,
+      ).run(...batch)
+    }
+
+    return collected
+  })()
+
+  if (ids.length > 0) {
+    syncArticleFiltersToSearch(ids.map(id => ({ id, is_unread: false })))
+  }
+
+  return { updated: ids.length, ids }
+}
+
+/** Max ids per IN clause so the statement never hits the libsql parameter limit. */
+const UNSEEN_BATCH = 500
+
+/**
+ * Mark the given articles as unread again, undoing a bulk mark-as-read.
+ *
+ * Both seen_at and read_at are cleared, matching the state transition of the
+ * single article path markArticleSeen(id, false). The score expression reads
+ * read_at, so the score has to be recomputed for every affected article.
+ *
+ * The update and the score recalculation share one transaction, so a failure
+ * never leaves part of the set unread. Ids that do not resolve to an existing,
+ * non-purged article are ignored. The id set is chunked internally, so the
+ * caller never has to split a request to stay under the parameter limit.
+ */
+export function markArticlesUnseen(ids: number[]): { updated: number } {
+  if (ids.length === 0) return { updated: 0 }
+  const db = getDb()
+
+  const affected = db.transaction(() => {
+    const resolved: number[] = []
+    for (let i = 0; i < ids.length; i += UNSEEN_BATCH) {
+      const batch = ids.slice(i, i + UNSEEN_BATCH)
+      const placeholders = batch.map(() => '?').join(',')
+      const rows = db.prepare(
+        `SELECT id FROM active_articles WHERE id IN (${placeholders})`,
+      ).all(...batch) as { id: number }[]
+      for (const row of rows) resolved.push(row.id)
+    }
+
+    for (let i = 0; i < resolved.length; i += UNSEEN_BATCH) {
+      const batch = resolved.slice(i, i + UNSEEN_BATCH)
+      const placeholders = batch.map(() => '?').join(',')
+      db.prepare(
+        `UPDATE articles SET seen_at = NULL, read_at = NULL WHERE id IN (${placeholders})`,
+      ).run(...batch)
+    }
+    // Recomputed only after read_at is cleared: an UPDATE evaluates its
+    // expressions against the pre-update row, so the score needs its own pass.
+    for (const id of resolved) updateScoreDb(id)
+
+    return resolved
+  })()
+
+  if (affected.length > 0) {
+    syncArticleFiltersToSearch(affected.map(id => ({ id, is_unread: true })))
+    for (const id of affected) syncScoreToSearch(id)
+  }
+
+  return { updated: affected.length }
 }
 
 export function markArticleLiked(

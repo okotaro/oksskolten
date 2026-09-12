@@ -9,8 +9,10 @@ import { useI18n } from '../../lib/i18n'
 import { trackRead } from '../../lib/readTracker'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
+import { useBulkMarkRead } from '../../hooks/use-bulk-mark-read'
 import { useAppLayout } from '../../app'
 import { ArticleCard, type ArticleDisplayConfig } from './article-card'
+import { ArticleContextMenu } from './article-context-menu'
 import { FeedMetricsBar } from '../feed/feed-metrics-bar'
 import { SwipeableArticleCard } from './swipeable-article-card'
 import { articleUrlToPath } from '../../lib/url'
@@ -24,7 +26,7 @@ import { Skeleton } from '../ui/skeleton'
 import { useKeyboardNavigationContext } from '../../contexts/keyboard-navigation-context'
 import { useKeyboardNavigation } from '../../hooks/use-keyboard-navigation'
 import { apiPatch } from '../../lib/fetcher'
-import type { ArticleListItem, FeedWithCounts } from '../../../shared/types'
+import type { ArticleListItem, BulkReadScope, FeedWithCounts } from '../../../shared/types'
 import type { LayoutName } from '../../data/layouts'
 
 interface ArticlesResponse {
@@ -266,10 +268,12 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   // Auto-mark-as-read on scroll
   //
   // - IntersectionObserver fires when an article overlaps the header (48px)
-  // - UI updates instantly via React state (autoReadIds)
+  // - UI updates instantly via React state (locallyReadIds)
   // - API calls are batched and flushed every ~1.5 s
   // ---------------------------------------------------------------------------
-  const [autoReadIds, setAutoReadIds] = useState<Set<number>>(() => new Set())
+  // Ids shown as read without refetching the list. Owned here and fed by both
+  // scroll auto-read and bulk mark-as-read (plus its undo).
+  const [locallyReadIds, setLocallyReadIds] = useState<Set<number>>(() => new Set())
   const observerRef = useRef<IntersectionObserver | null>(null)
   const batchQueue = useRef(new Set<number>())
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -295,7 +299,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
 
   // Mark an article as read: instant UI update + queue for server batch
   const markRead = useCallback((articleId: number) => {
-    setAutoReadIds(prev => {
+    setLocallyReadIds(prev => {
       if (prev.has(articleId)) return prev
       const next = new Set(prev)
       next.add(articleId)
@@ -397,13 +401,53 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     }
   }, [feedId, categoryId, flushBatch])
 
-  // Reset autoReadIds, noFloor, showReadArticles, and keyboard focus when feed/category changes
+  // Reset locallyReadIds, noFloor, showReadArticles, and keyboard focus when feed/category changes
   useEffect(() => {
-    setAutoReadIds(new Set())
+    setLocallyReadIds(new Set())
     setNoFloor(false)
     setShowReadArticles(false)
     setFocusedItemId(null)
   }, [feedId, categoryId, setFocusedItemId])
+
+  // ---------------------------------------------------------------------------
+  // Bulk mark-as-read (right-click menu)
+  //
+  // The excluded views are enumerated on purpose: the clip list sets a feed id
+  // internally, so the presence or absence of a feed id cannot tell them apart.
+  // ---------------------------------------------------------------------------
+  const canBulkMarkRead = !isTouchDevice && !isBookmarks && !isLikes && !isHistory
+
+  // The very same filter values the list sends to /api/articles, so the bulk
+  // range matches what the reader is looking at.
+  const bulkReadScope: BulkReadScope = useMemo(() => {
+    const scope: BulkReadScope = {}
+    if (feedId) scope.feed_id = feedId
+    if (categoryId) scope.category_id = categoryId
+    if (unreadOnly) scope.unread = true
+    return scope
+  }, [feedId, categoryId, unreadOnly])
+
+  const addLocallyReadIds = useCallback((ids: number[]) => {
+    setLocallyReadIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) next.add(id)
+      return next
+    })
+  }, [])
+
+  const removeLocallyReadIds = useCallback((ids: number[]) => {
+    setLocallyReadIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) next.delete(id)
+      return next
+    })
+  }, [])
+
+  const { markRange, isPending } = useBulkMarkRead({
+    scope: bulkReadScope,
+    onMarkedLocally: addLocallyReadIds,
+    onUnmarkedLocally: removeLocallyReadIds,
+  })
 
   return (
     <main ref={listRef} className="max-w-2xl mx-auto" role={!isGridLayout ? 'listbox' : undefined}>
@@ -477,8 +521,8 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
 
       <div className={isGridLayout ? 'grid grid-cols-1 md:grid-cols-2 gap-4 px-4 md:px-6' : ''}>
         {articles.map((article, index) => {
-          const isAutoRead = autoReadIds.has(article.id)
-          const effectiveArticle = isAutoRead
+          const isLocallyRead = locallyReadIds.has(article.id)
+          const effectiveArticle = isLocallyRead
             ? { ...article, seen_at: article.seen_at ?? new Date().toISOString() }
             : article
           const handleOverlayOpen = articleOpenMode === 'overlay' ? (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -498,7 +542,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
             <div
               key={article.id}
               data-article-id={article.id}
-              data-article-unread={article.seen_at == null && !isAutoRead ? '1' : '0'}
+              data-article-unread={article.seen_at == null && !isLocallyRead ? '1' : '0'}
               aria-selected={isKbFocused || undefined}
               className={layout === 'magazine' && index === 0 ? 'col-span-full' : ''}
               style={isKbFocused ? {
@@ -513,6 +557,17 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
             >
               {isTouchDevice ? (
                 <SwipeableArticleCard {...cardProps} />
+              ) : canBulkMarkRead ? (
+                <ArticleContextMenu
+                  onMarkReadAbove={() => { void markRange(article.id, 'newer') }}
+                  onMarkReadBelow={() => { void markRange(article.id, 'older') }}
+                  aboveDisabled={isPending(article.id, 'newer')}
+                  belowDisabled={isPending(article.id, 'older')}
+                >
+                  <div>
+                    <ArticleCard {...cardProps} />
+                  </div>
+                </ArticleContextMenu>
               ) : (
                 <ArticleCard {...cardProps} />
               )}

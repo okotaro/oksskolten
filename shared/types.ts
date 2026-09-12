@@ -87,3 +87,37 @@ export interface ArticleDetail extends ArticleListItem {
   feed_type: 'rss' | 'clip'
   imageArchivingEnabled: boolean
 }
+
+// --- Bulk mark-as-read ---
+
+/** Direction of a bulk mark-as-read. `newer` goes up the list, `older` goes down. */
+export type BulkReadDirection = 'newer' | 'older'
+
+/** Filters that narrow the bulk mark-as-read target set. Limited to the article
+ *  list query conditions this feature handles. */
+export interface BulkReadScope {
+  feed_id?: number
+  category_id?: number
+  unread?: boolean
+}
+
+export interface RangeSeenRequest {
+  anchor_id: number
+  direction: BulkReadDirection
+  scope: BulkReadScope
+}
+
+export interface RangeSeenResponse {
+  /** Number of articles newly marked as read. Equal to ids.length. */
+  updated: number
+  /** IDs of the articles newly marked as read. Sent back as-is to undo. */
+  ids: number[]
+}
+
+export interface BatchUnseenRequest {
+  ids: number[]
+}
+
+export interface BatchUnseenResponse {
+  updated: number
+}
