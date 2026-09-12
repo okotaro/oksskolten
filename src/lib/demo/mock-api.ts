@@ -1,5 +1,6 @@
 import { demoStore } from './demo-store'
 import { dt, getLocale, streamText } from './i18n'
+import type { BatchUnseenRequest, BulkReadScope, RangeSeenRequest } from '../../../shared/types'
 
 // ---------------------------------------------------------------------------
 // Intercept global fetch for endpoints that use raw fetch (SSE streams, etc.)
@@ -82,6 +83,10 @@ let demoProfileAvatarSeed: string | null = null
 function asBody<T>(body: unknown): T {
   return (body ?? {}) as T
 }
+
+/** Request body of POST /api/articles/range-seen as it arrives over the wire.
+ *  scope is optional because the server schema defaults it to an empty filter. */
+type RangeSeenWireBody = Omit<RangeSeenRequest, 'scope'> & { scope?: BulkReadScope }
 
 function parsePath(url: string) {
   const parsed = new URL(url, 'http://localhost')
@@ -240,6 +245,25 @@ export async function demoApiPost(url: string, body?: unknown): Promise<unknown>
   if (path === '/api/articles/batch-seen') {
     const { ids } = asBody<{ ids: number[] }>(body)
     return demoStore.batchSeen(ids)
+  }
+
+  // /api/articles/range-seen — bulk mark-as-read from an anchor and a direction
+  if (path === '/api/articles/range-seen') {
+    const { anchor_id, direction, scope } = asBody<RangeSeenWireBody>(body)
+    const result = demoStore.markSeenByRange(anchor_id, direction, scope ?? {})
+    // The anchor article is gone: the range cannot be resolved and no seen
+    // state has changed. The production route answers 404 here.
+    if (result === null) {
+      const { ApiError } = await import('../api-base')
+      throw new ApiError('Article not found', 404, { error: 'Article not found' })
+    }
+    return result
+  }
+
+  // /api/articles/batch-unseen — undo of a bulk mark-as-read
+  if (path === '/api/articles/batch-unseen') {
+    const { ids } = asBody<BatchUnseenRequest>(body)
+    return demoStore.batchUnseen(ids)
   }
 
   // AI features — return demo message (actual streaming happens via streamPost/streamPostChat)

@@ -90,7 +90,7 @@
   - _Depends: 1.1_
   - _Boundary: demo-store_
 
-- [ ] 4.2 デモ用の API 分岐を追加する
+- [x] 4.2 デモ用の API 分岐を追加する
   - 一括既読と取り消しの2つのパスを横取りし、本番と同じ応答形状を返す
   - 既存の一括既読系の分岐に隣接して追加する
   - デモビルドで新しいパスが未知のフォールバックに落ちず、デモストアの操作が呼ばれる状態になる
@@ -141,3 +141,5 @@
 - デモストアの `markSeenByRange` は基準記事が見つからない場合 `null` を返す。本番の `markArticlesSeenByRange` は `undefined` を返す。どちらも falsy なのでタスク 4.2 の 404 分岐は同じ形で書けるが、デモ層の既存慣習(`markArticleRead` などが `null`)に合わせた結果である。
 - デモの `SeedArticle` に `purged_at` 相当の列がないため、本番の `active_articles` ビューによる削除済み除外に対応するコードはデモ側に存在しない。規則の欠落ではなくデータモデルの差である。
 - デモストアのテストは `vi.mock` でシード JSON を固定データに差し替えている。実シードの `published_at` は相対表記で、同一オフセットでも `resolveRelativeDate` が個別に `Date.now()` を呼ぶため厳密同値にならず、要件 2.7 の同値ケースを実シードでは再現できない。
+- デモの `mock-api.ts` はサーバーの zod 検証(基準記事IDの正整数、方向の列挙、件数上限)を複製していない。`.claude/rules/demo-mode.md` がデモモックの責務をパスルーティングに限定し、`asBody` が実行時検証を行わないと明記しているため。既存の `batch-seen` 分岐も `MAX_BATCH_SEEN` を複製していない。入力検証はルート境界の責務である。
+- デモの 404 は `new ApiError('Article not found', 404, { error: 'Article not found' })` で、本番の 404 応答からクライアントの `handleResponseError` が生成するものと message / status / data のすべてが一致する。
