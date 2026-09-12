@@ -11,6 +11,8 @@ import {
   getArticlesByIds,
   markArticleSeen,
   markArticlesSeen,
+  markArticlesSeenByRange,
+  markArticlesUnseen,
   recordArticleRead,
   markArticleBookmarked,
   markArticleLiked,
@@ -46,6 +48,9 @@ const DEFAULT_ARTICLE_LIMIT = 20
 const MAX_ARTICLE_LIMIT = 100
 const MAX_CHECK_URLS = 200
 const MAX_BATCH_SEEN = 100
+// Undo payloads carry one id per newly read article. 50,000 is far above any
+// realistic unread backlog, so the cap never forces the user to split an undo.
+const MAX_BATCH_UNSEEN = 50_000
 const MAX_SEARCH_LIMIT = 50
 
 // Coerce to number, treating NaN as undefined to preserve existing behavior
@@ -105,6 +110,28 @@ const BookmarkBody = z.object({ bookmarked: z.boolean({ message: 'bookmarked mus
 const LikeBody = z.object({ liked: z.boolean({ message: 'liked must be a boolean' }) })
 const BatchSeenBody = z.object({
   ids: z.array(z.number()).min(1, 'ids must be a non-empty array').max(MAX_BATCH_SEEN, `Maximum ${MAX_BATCH_SEEN} ids per request`),
+})
+
+// Bulk mark-as-read: the range is resolved from an anchor article plus a
+// direction, while the undo takes back the ids the range call reported.
+const positiveIntField = (label: string) =>
+  z.number({ error: `${label} must be a positive integer` })
+    .int(`${label} must be a positive integer`)
+    .positive(`${label} must be a positive integer`)
+
+const RangeSeenBody = z.object({
+  anchor_id: positiveIntField('anchor_id'),
+  direction: z.enum(['newer', 'older'], { error: "direction must be 'newer' or 'older'" }),
+  scope: z.object({
+    feed_id: positiveIntField('scope.feed_id').optional(),
+    category_id: positiveIntField('scope.category_id').optional(),
+    unread: z.boolean({ error: 'scope.unread must be a boolean' }).optional(),
+  }).default({}),
+})
+
+const BatchUnseenBody = z.object({
+  ids: z.array(positiveIntField('ids'), { error: 'ids must be an array of positive integers' })
+    .max(MAX_BATCH_UNSEEN, `Maximum ${MAX_BATCH_UNSEEN} ids per request`),
 })
 const StreamQuery = z.object({ stream: z.string().optional() })
 const FilenameParams = z.object({ filename: z.string() })
@@ -431,6 +458,34 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       const body = parseOrBadRequest(BatchSeenBody, request.body, reply)
       if (!body) return
       const result = markArticlesSeen(body.ids)
+      reply.send(result)
+    },
+  )
+
+  api.post(
+    '/api/articles/range-seen',
+    { preHandler: [requireJson] },
+    async (request, reply) => {
+      const body = parseOrBadRequest(RangeSeenBody, request.body, reply)
+      if (!body) return
+      const result = markArticlesSeenByRange(body.anchor_id, body.direction, body.scope)
+      // The anchor is gone (deleted or purged): the range cannot be resolved,
+      // and no article has been marked as read.
+      if (!result) {
+        reply.status(404).send({ error: 'Article not found' })
+        return
+      }
+      reply.send(result)
+    },
+  )
+
+  api.post(
+    '/api/articles/batch-unseen',
+    { preHandler: [requireJson] },
+    async (request, reply) => {
+      const body = parseOrBadRequest(BatchUnseenBody, request.body, reply)
+      if (!body) return
+      const result = markArticlesUnseen(body.ids)
       reply.send(result)
     },
   )
