@@ -4,8 +4,11 @@ import { Piscina as PiscinaPool } from 'piscina'
 import { JSDOM } from 'jsdom'
 import { fetchHtml } from './http.js'
 import { fetchViaFlareSolverr } from './flaresolverr.js'
+import { logger } from '../logger.js'
 import type { CleanerConfig } from '../lib/cleaner/selectors.js'
 import type { ParseHtmlInput, ParseHtmlResult } from './contentWorker.js'
+
+const log = logger.child('content')
 
 // Worker pool for CPU-intensive DOM parsing (jsdom + Readability + Turndown).
 // Runs on separate threads so the main event loop stays responsive for API requests.
@@ -32,7 +35,7 @@ const workerUrl = fs.existsSync(fileURLToPath(jsWorkerUrl)) ? jsWorkerUrl : tsWo
  * `getPool()`, not call this directly, to avoid duplicate pools.
  */
 export function createWorkerPool(): PiscinaPool {
-  return new PiscinaPool({
+  const pool = new PiscinaPool({
     filename: workerUrl.href,
     execArgv: process.execArgv,
     resourceLimits: {
@@ -45,6 +48,17 @@ export function createWorkerPool(): PiscinaPool {
     minThreads: 1,
     idleTimeout: 30_000,
   })
+
+  // Piscina emits 'error' for worker failures it can't attribute to a pending
+  // task (e.g. ERR_WORKER_OUT_OF_MEMORY hitting the resourceLimits above).
+  // Node's EventEmitter throws and crashes the process on an 'error' event
+  // with no listener, so without this the whole server goes down whenever a
+  // single page is too heavy for one worker's heap ceiling.
+  pool.on('error', (err) => {
+    log.error('worker pool error:', err)
+  })
+
+  return pool
 }
 
 let _pool: PiscinaPool | null = null
