@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { parseHtml } from './contentWorker.js'
-import { extractAnchoredContentHtml, isBotBlockPage, stripHeavyTags } from './content.js'
+import { createWorkerPool, extractAnchoredContentHtml, isBotBlockPage, stripHeavyTags } from './content.js'
 import { convertHtmlToMarkdown, markdownToExcerpt } from './markdown-utils.js'
 
 // ---------------------------------------------------------------------------
@@ -272,6 +272,18 @@ describe('parseHtml', () => {
     const result = parseHtml({ html, articleUrl: 'https://example.com/blog/post' })
 
     expect(result.fullText).toContain('https://example.com/images/relative.jpg')
+  })
+})
+
+describe('createWorkerPool', () => {
+  it('does not crash the process when the pool emits an error event', () => {
+    // Piscina emits 'error' for worker failures it can't attribute to a
+    // pending task, e.g. ERR_WORKER_OUT_OF_MEMORY. Node's EventEmitter
+    // throws on an 'error' event with no listener, which previously took
+    // down the whole server process. This proves a listener is attached.
+    const pool = createWorkerPool()
+
+    expect(() => pool.emit('error', new Error('ERR_WORKER_OUT_OF_MEMORY'))).not.toThrow()
   })
 })
 
