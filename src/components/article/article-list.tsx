@@ -122,6 +122,10 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isEmpty = data?.[0]?.articles.length === 0
   const totalAll = data?.[0]?.total_all
   const allReadEmpty = isEmpty && categoryUnreadOnly && !showReadArticles && totalAll != null && totalAll > 0
+  // categoryUnreadOnly and isPlainFeedView can't both be active (a category-unread-only
+  // view and an individual feed page are mutually exclusive routes), so allReadEmpty and
+  // feedAllReadEmpty never become true at the same time.
+  const feedAllReadEmpty = isEmpty && isPlainFeedView && feedUnreadOnly === 'on' && totalAll != null && totalAll > 0
   const hiddenByFloor = data?.[0]?.total_without_floor != null
     ? data[0].total_without_floor - (data[0].total ?? 0)
     : 0
@@ -477,7 +481,11 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
       {isPlainFeedView && (
         <FeedUnreadOnlyToggle
           unreadOnly={feedUnreadOnly === 'on'}
-          onToggle={() => setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')}
+          onToggle={() => {
+            setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
+            void setSize(1)
+            window.scrollTo(0, 0)
+          }}
         />
       )}
 
@@ -492,11 +500,18 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {allReadEmpty && !isLoading && (
+      {(allReadEmpty || feedAllReadEmpty) && !isLoading && (
         <div className="text-center py-12">
           <p className="text-muted mb-3">{t('articles.allRead')}</p>
           <button
-            onClick={() => setShowReadArticles(true)}
+            onClick={() => {
+              if (feedAllReadEmpty) {
+                setFeedUnreadOnly('off')
+                void setSize(1)
+              } else {
+                setShowReadArticles(true)
+              }
+            }}
             className="text-accent text-sm hover:underline"
           >
             {t('articles.showReadArticles')}
@@ -504,7 +519,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {isEmpty && !allReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
+      {isEmpty && !allReadEmpty && !feedAllReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
         <FeedErrorBanner
           lastError={currentFeed.last_error ?? ''}
           feedId={currentFeed.id}
@@ -512,7 +527,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         />
       )}
 
-      {isEmpty && !allReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
+      {isEmpty && !allReadEmpty && !feedAllReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
         currentFeed?.last_error ? (
           <FeedErrorBanner
             lastError={currentFeed.last_error}

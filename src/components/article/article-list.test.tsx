@@ -208,6 +208,8 @@ function renderArticleList(initialPath = '/inbox') {
   )
 }
 
+let scrollToSpy: ReturnType<typeof vi.spyOn>
+
 describe('ArticleList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -225,6 +227,8 @@ describe('ArticleList', () => {
       unobserve = vi.fn()
       disconnect = vi.fn()
     })
+    // jsdom doesn't implement scrollTo; stub it for the toggle's scroll-reset behavior
+    scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     // Reset to loading state
     swrInfiniteReturn = {
       data: undefined,
@@ -757,5 +761,51 @@ describe('ArticleList', () => {
     renderArticleList('/feeds/1')
     fireEvent.click(screen.getByText('Unread only'))
     expect(setFeedUnreadOnly).toHaveBeenCalledWith('on')
+  })
+
+  it('resets pagination when the toggle is clicked', () => {
+    const setFeedUnreadOnly = vi.fn()
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', setFeedUnreadOnly])
+    const mockSetSize = vi.fn()
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    swrInfiniteReturn.setSize = mockSetSize
+    renderArticleList('/feeds/1')
+    fireEvent.click(screen.getByText('Unread only'))
+    expect(mockSetSize).toHaveBeenCalledWith(1)
+  })
+
+  it('scrolls to the top when the toggle is clicked', () => {
+    const setFeedUnreadOnly = vi.fn()
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', setFeedUnreadOnly])
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    fireEvent.click(screen.getByText('Unread only'))
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 0)
+  })
+
+  it('shows the reused empty-state guidance when the feed unread-only view has no unread articles, and its button resets the toggle and pagination', () => {
+    const setFeedUnreadOnly = vi.fn()
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['on', setFeedUnreadOnly])
+    const mockSetSize = vi.fn()
+    setFeed(1)
+    swrInfiniteReturn = {
+      data: [{ articles: [], total: 0, has_more: false, total_all: 5 }],
+      error: undefined,
+      size: 1,
+      setSize: mockSetSize,
+      isLoading: false,
+      isValidating: false,
+      mutate: vi.fn(),
+    }
+    renderArticleList('/feeds/1')
+    expect(screen.getByText('All caught up!')).toBeTruthy()
+    // The generic empty-list fallback must not render alongside this guidance.
+    expect(screen.queryByText('No articles')).toBeNull()
+
+    fireEvent.click(screen.getByText('Show read articles'))
+    expect(setFeedUnreadOnly).toHaveBeenCalledWith('off')
+    expect(mockSetSize).toHaveBeenCalledWith(1)
   })
 })

@@ -39,7 +39,7 @@
   - _Depends: 1.1, 2_
   - _Boundary: ArticleList_
 
-- [ ] 3.2 切り替え時のページング・スクロールリセットと未読0件時の空状態表示を組み込む
+- [x] 3.2 切り替え時のページング・スクロールリセットと未読0件時の空状態表示を組み込む
   - トグルの切り替え操作でページング(useSWRInfiniteのsize)を1にリセットする
   - トグルの切り替え操作で一覧の先頭へスクロールする
   - 未読のみ表示で対象フィードの未読が0件のとき、既存の空状態文言(既読記事を表示する等)を再利用した案内を表示する
@@ -59,3 +59,4 @@
 
 ## Implementation Notes
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22.
+- `feedAllReadEmpty`を追加した際、既存の`isEmpty && !allReadEmpty && !isLoading`ゲート(FeedErrorBanner/汎用の空メッセージ)も`!feedAllReadEmpty`を除外条件に加える必要があった。`allReadEmpty`同様、他の空状態フォールバックと二重表示しないよう、新しい空状態フラグを追加する際は既存の`isEmpty`系フォールバック条件も併せて見直すこと。
