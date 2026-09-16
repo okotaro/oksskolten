@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, Outlet, useNavigate } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
 import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
 import type { ArticleListItem, FeedWithCounts } from '../../../shared/types'
@@ -206,6 +206,58 @@ function renderArticleList(initialPath = '/inbox') {
       </LocaleContext.Provider>
     </MemoryRouter>,
   )
+}
+
+// --- Navigation helpers for feed-switch integration tests ---
+//
+// react-router keeps the layout route (OutletWrapper) and the matched child
+// route element (ArticleList) mounted across a navigation between sibling
+// routes that share the same path pattern (e.g. feeds/:feedId -> feeds/:feedId
+// with a different param). This mirrors production, where /feeds/:id has no
+// `key` prop and ArticleList never remounts on feed switches (see design.md's
+// "Existing Architecture Analysis"). `MemoryRouter`'s `initialEntries` only
+// seeds the history on first mount, so re-rendering with a new initial path
+// does NOT navigate an already-mounted router. Instead, a helper component
+// captures `useNavigate()` once and tests drive real navigation through it.
+let capturedNavigate: ((path: string) => void) | undefined
+
+function NavigationCapture() {
+  const navigate = useNavigate()
+  capturedNavigate = navigate
+  return null
+}
+
+function OutletWrapperWithNavCapture() {
+  return (
+    <KeyboardNavigationProvider>
+      <NavigationCapture />
+      <Outlet context={{ settings: mockSettings, sidebarOpen: false, setSidebarOpen: vi.fn() }} />
+    </KeyboardNavigationProvider>
+  )
+}
+
+function renderArticleListWithNav(initialPath = '/feeds/1') {
+  capturedNavigate = undefined
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <LocaleContext.Provider value={{ locale: 'en', setLocale: vi.fn() }}>
+        <Routes>
+          <Route element={<OutletWrapperWithNavCapture />}>
+            <Route path="feeds/:feedId" element={<ArticleList />} />
+            <Route path="categories/:categoryId" element={<ArticleList />} />
+            <Route path="*" element={<ArticleList />} />
+          </Route>
+        </Routes>
+      </LocaleContext.Provider>
+    </MemoryRouter>,
+  )
+}
+
+/** Navigate the already-rendered tree to `path` using the captured navigate function. */
+function navigateTo(path: string) {
+  act(() => {
+    capturedNavigate!(path)
+  })
 }
 
 let scrollToSpy: ReturnType<typeof vi.spyOn>
@@ -807,5 +859,79 @@ describe('ArticleList', () => {
     fireEvent.click(screen.getByText('Show read articles'))
     expect(setFeedUnreadOnly).toHaveBeenCalledWith('off')
     expect(mockSetSize).toHaveBeenCalledWith(1)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Feed-switch integration: per-feed unread-only state restoration (task 4)
+  //
+  // Task 1.1's own unit tests (use-feed-unread-only.test.ts) already prove the
+  // hook itself re-derives correctly per feedId in isolation. These tests are
+  // the belt-and-suspenders check that the guarantee still holds once the hook
+  // is wired into the full ArticleList tree and driven by real route
+  // navigation — exactly the scenario the feasibility research flagged as
+  // unsafe for a naive per-feed-id localStorage hook (see research.md,
+  // "createLocalStorageHook のフィードID単位への転用可否": ArticleList does not
+  // remount when navigating between /feeds/:id routes, so a hook that doesn't
+  // re-derive on feedId change would leak state across feeds).
+  //
+  // The real useFeedUnreadOnly hook (and real localStorage, provided by
+  // src/__tests__/setup.ts) is used here instead of the module-level mock,
+  // since the mock's fixed per-test return value cannot express a value that
+  // changes across a single render tree's feedId changes.
+  // ---------------------------------------------------------------------------
+  describe('feed switching restores per-feed unread-only state (real hook + real navigation)', () => {
+    beforeEach(async () => {
+      const actual = await vi.importActual<typeof import('../../hooks/use-feed-unread-only')>(
+        '../../hooks/use-feed-unread-only',
+      )
+      vi.mocked(useFeedUnreadOnly).mockImplementation(actual.useFeedUnreadOnly)
+      setFeed(1)
+      setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    })
+
+    it('does not leak an "on" state onto a feed with no stored preference (the leak this feature was built to prevent)', () => {
+      renderArticleListWithNav('/feeds/1')
+      fireEvent.click(screen.getByText('Unread only'))
+      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(localStorage.getItem('feed-unread-only:1')).toBe('on')
+
+      navigateTo('/feeds/2')
+
+      // Feed 2 has no stored preference: must show the default (off), not
+      // feed 1's 'on' state carried over by a stale, un-rederived hook.
+      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.queryByText('Show all')).toBeNull()
+    })
+
+    it('restores a stored "on" preference when navigating to a feed that has one', () => {
+      localStorage.setItem('feed-unread-only:2', 'on')
+      renderArticleListWithNav('/feeds/1')
+      expect(screen.getByText('Unread only')).toBeTruthy()
+
+      navigateTo('/feeds/2')
+
+      expect(screen.getByText('Show all')).toBeTruthy()
+    })
+
+    it('defaults to "off" (show all articles) for a feed with no stored preference', () => {
+      renderArticleListWithNav('/feeds/3')
+
+      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.queryByText('Show all')).toBeNull()
+    })
+
+    it('restores each feed\'s own state correctly across a three-way A -> B -> A navigation chain', () => {
+      renderArticleListWithNav('/feeds/1')
+      fireEvent.click(screen.getByText('Unread only')) // Feed 1: off -> on
+      expect(screen.getByText('Show all')).toBeTruthy()
+
+      navigateTo('/feeds/2') // Feed 2: no stored preference
+      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.queryByText('Show all')).toBeNull()
+
+      navigateTo('/feeds/1') // Back to feed 1: must restore 'on', not feed 2's 'off'
+      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(screen.queryByText('Unread only')).toBeNull()
+    })
   })
 })
