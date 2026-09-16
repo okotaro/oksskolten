@@ -18,7 +18,7 @@
   - _Requirements: 1.5, 6.1_
   - _Boundary: i18n dict_
 
-- [ ] 2. FeedUnreadOnlyToggle コンポーネントを実装する
+- [x] 2. FeedUnreadOnlyToggle コンポーネントを実装する
   - 現在の表示状態(すべて表示/未読のみ表示)に応じて、追加した文言キーでラベルを切り替えて表示する
   - クリック時にonToggleコールバックを呼ぶ
   - 状態の保持や永続化ロジックを持たない表示専用コンポーネントとして実装する
