@@ -18,6 +18,7 @@ Typical RSS readers only display the title and summary provided by the feed, req
 > - [84_feature_keyboard_navigation.md](./84_feature_keyboard_navigation.md) — Keyboard Navigation
 > - [85_feature_ollama.md](./85_feature_ollama.md) — Ollama LLM Provider
 > - [86_feature_bulk_mark_read.md](./86_feature_bulk_mark_read.md) — Bulk Mark-as-Read
+> - [87_feature_feed_unread_only.md](./87_feature_feed_unread_only.md) — Feed Unread-Only Toggle
 > - [90_perf_retry_backoff.md](./90_perf_retry_backoff.md) — Exponential Backoff for Article Retry
 > - [91_perf_score_recalculation.md](./91_perf_score_recalculation.md) — Score Recalculation Optimization
 
