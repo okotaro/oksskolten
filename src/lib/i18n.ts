@@ -76,6 +76,10 @@ const dict = {
   'articles.markReadAbove': { ja: 'これより上（新しい）を既読にする', en: 'Mark above (newer) as read', zh: '将上方（更新）标为已读'},
   'articles.markReadBelow': { ja: 'これより下（古い）を既読にする', en: 'Mark below (older) as read', zh: '将下方（更早）标为已读'},
 
+  // FeedUnreadOnlyToggle
+  'feed.unreadOnlyToggle.showUnreadOnly': { ja: '未読のみ表示', en: 'Unread only', zh: '仅未读'},
+  'feed.unreadOnlyToggle.showAll': { ja: 'すべて表示', en: 'Show all', zh: '显示全部'},
+
   // FeedErrorBanner - pipeline stages
   'feedError.stage.discovery': { ja: 'RSS検出', en: 'RSS Discovery', zh: 'RSS 发现'},
   'feedError.stage.bridge': { ja: 'Bridge変換', en: 'Bridge', zh: '桥接'},
