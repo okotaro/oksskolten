@@ -9,11 +9,13 @@ import { useI18n } from '../../lib/i18n'
 import { trackRead } from '../../lib/readTracker'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
+import { useFeedUnreadOnly } from '../../hooks/use-feed-unread-only'
 import { useBulkMarkRead } from '../../hooks/use-bulk-mark-read'
 import { useAppLayout } from '../../app'
 import { ArticleCard, type ArticleDisplayConfig } from './article-card'
 import { ArticleContextMenu } from './article-context-menu'
 import { FeedMetricsBar } from '../feed/feed-metrics-bar'
+import { FeedUnreadOnlyToggle } from './feed-unread-only-toggle'
 import { SwipeableArticleCard } from './swipeable-article-card'
 import { articleUrlToPath } from '../../lib/url'
 import { ArticleOverlay } from './article-overlay'
@@ -59,14 +61,19 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
   const isCollectionView = isBookmarks || isLikes || isHistory || isClips
+  // An individual feed page: a route feed id is present and the view isn't
+  // one of the collection views above (inbox/category-only routes never set
+  // feedIdParam, so they're excluded naturally too).
+  const isPlainFeedView = Boolean(feedIdParam) && !isCollectionView
 
   const { data: feedsData } = useSWR<{ feeds: FeedWithCounts[] }>('/api/feeds', fetcher)
   const feedId = feedIdParam ? Number(feedIdParam) : (isClips && clipFeedId ? clipFeedId : undefined)
+  const [feedUnreadOnly, setFeedUnreadOnly] = useFeedUnreadOnly(isPlainFeedView ? feedId : undefined)
   const currentFeed = feedId && feedsData ? feedsData.feeds.find(f => f.id === feedId) : undefined
   const categoryId = categoryIdParam ? Number(categoryIdParam) : undefined
   const [showReadArticles, setShowReadArticles] = useState(false)
   const categoryUnreadOnly = !!categoryId && settings.categoryUnreadOnly === 'on'
-  const unreadOnly = isInbox || (categoryUnreadOnly && !showReadArticles)
+  const unreadOnly = isInbox || (categoryUnreadOnly && !showReadArticles) || (isPlainFeedView && feedUnreadOnly === 'on')
   const bookmarkedOnly = isBookmarks
   const likedOnly = isLikes
   const readOnly = isHistory
@@ -465,6 +472,13 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
 
       {currentFeed && currentFeed.type !== 'clip' && settings.showFeedActivity === 'on' && (
         <FeedMetricsBar feed={currentFeed} />
+      )}
+
+      {isPlainFeedView && (
+        <FeedUnreadOnlyToggle
+          unreadOnly={feedUnreadOnly === 'on'}
+          onToggle={() => setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')}
+        />
       )}
 
       {isLoading && <ArticleListSkeleton layout={layout} showThumbnails={displayConfig.showThumbnails} />}

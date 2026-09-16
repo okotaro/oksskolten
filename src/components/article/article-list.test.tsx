@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
 import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
-import type { ArticleListItem } from '../../../shared/types'
+import type { ArticleListItem, FeedWithCounts } from '../../../shared/types'
 
 // --- Mocks ---
 
@@ -21,8 +21,15 @@ let swrInfiniteReturn: any = {
 // Control useSWR return value for /api/feeds
 let swrFeedsData: any = undefined
 
+// Captures the getKey function ArticleList passes to useSWRInfinite, so tests
+// can invoke it directly to inspect the query string it builds.
+let capturedGetKey: ((pageIndex: number, previousPageData: any) => string | null) | undefined
+
 vi.mock('swr/infinite', () => ({
-  default: () => swrInfiniteReturn,
+  default: (getKey: any) => {
+    capturedGetKey = getKey
+    return swrInfiniteReturn
+  },
 }))
 
 vi.mock('swr', async () => {
@@ -62,6 +69,10 @@ vi.mock('../../hooks/use-is-touch-device', () => ({
 
 vi.mock('../../hooks/use-clip-feed-id', () => ({
   useClipFeedId: vi.fn(() => null),
+}))
+
+vi.mock('../../hooks/use-feed-unread-only', () => ({
+  useFeedUnreadOnly: vi.fn(() => ['off', vi.fn()]),
 }))
 
 vi.mock('../layout/pull-to-refresh', () => ({
@@ -120,6 +131,7 @@ vi.mock('sonner', () => ({
 import { ArticleList } from './article-list'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
+import { useFeedUnreadOnly } from '../../hooks/use-feed-unread-only'
 import { apiPost } from '../../lib/fetcher'
 
 const MENU_LABEL_ABOVE = 'Mark above (newer) as read'
@@ -204,6 +216,7 @@ describe('ArticleList', () => {
     mockSettings.categoryUnreadOnly = 'off' as any
     vi.mocked(useIsTouchDevice).mockReturnValue(false)
     vi.mocked(useClipFeedId).mockReturnValue(null)
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', vi.fn()])
     vi.mocked(apiPost).mockResolvedValue({ updated: 0, ids: [] })
     // Stub IntersectionObserver for tests that enable autoMarkRead
     vi.stubGlobal('IntersectionObserver', class {
@@ -658,5 +671,91 @@ describe('ArticleList', () => {
       resolveRequest({ updated: 0, ids: [] })
       await new Promise(resolve => setTimeout(resolve, 0))
     })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Feed unread-only toggle (individual feed pages only)
+  // ---------------------------------------------------------------------------
+
+  function setFeed(id: number, overrides: Partial<FeedWithCounts> = {}) {
+    swrFeedsData = {
+      feeds: [{ id, name: 'My Feed', type: 'rss', unread_count: 5, total_count: 10, ...overrides }],
+    }
+  }
+
+  it('renders the feed unread-only toggle on a plain feed page', () => {
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    expect(screen.getByText('Unread only')).toBeTruthy()
+  })
+
+  it('passes the route feed id to useFeedUnreadOnly on a plain feed page', () => {
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    expect(useFeedUnreadOnly).toHaveBeenCalledWith(1)
+  })
+
+  const noToggleViews = [
+    { name: 'the inbox', path: '/inbox' },
+    { name: 'a category view', path: '/categories/3' },
+    { name: 'the bookmarks view', path: '/bookmarks' },
+    { name: 'the likes view', path: '/likes' },
+    { name: 'the history view', path: '/history' },
+    { name: 'the clips view', path: '/clips' },
+  ]
+
+  it.each(noToggleViews)('does not render the feed unread-only toggle on $name', ({ path }) => {
+    setArticles([makeArticle({ id: 1 })])
+    renderArticleList(path)
+    expect(screen.queryByText('Unread only')).toBeNull()
+    expect(screen.queryByText('Show all')).toBeNull()
+  })
+
+  it.each(noToggleViews)('passes undefined to useFeedUnreadOnly on $name', ({ path }) => {
+    setArticles([makeArticle({ id: 1 })])
+    renderArticleList(path)
+    expect(useFeedUnreadOnly).toHaveBeenCalledWith(undefined)
+  })
+
+  it('includes unread=1 in the fetch key when the feed toggle is on', () => {
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['on', vi.fn()])
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    expect(capturedGetKey).toBeDefined()
+    const key = capturedGetKey!(0, null)
+    expect(key).toContain('unread=1')
+  })
+
+  it('does not include unread=1 in the fetch key when the feed toggle is off', () => {
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', vi.fn()])
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    expect(capturedGetKey).toBeDefined()
+    const key = capturedGetKey!(0, null)
+    expect(key).not.toContain('unread=1')
+  })
+
+  it('renders the feed unread-only toggle even when showFeedActivity is off', () => {
+    mockSettings.showFeedActivity = 'off' as any
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    expect(screen.getByText('Unread only')).toBeTruthy()
+    expect(screen.queryByTestId('metrics-bar')).toBeNull()
+    mockSettings.showFeedActivity = 'on' as any
+  })
+
+  it('flips the persisted feed unread-only state when the toggle is clicked', () => {
+    const setFeedUnreadOnly = vi.fn()
+    vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', setFeedUnreadOnly])
+    setFeed(1)
+    setArticles([makeArticle({ id: 1, feed_id: 1 })])
+    renderArticleList('/feeds/1')
+    fireEvent.click(screen.getByText('Unread only'))
+    expect(setFeedUnreadOnly).toHaveBeenCalledWith('on')
   })
 })

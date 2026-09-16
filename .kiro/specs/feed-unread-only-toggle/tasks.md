@@ -28,7 +28,7 @@
   - _Boundary: FeedUnreadOnlyToggle_
 
 - [ ] 3. 統合: ArticleList への組み込み
-- [ ] 3.1 個別フィード判定とunreadOnlyへの合成、トグルの描画を組み込む
+- [x] 3.1 個別フィード判定とunreadOnlyへの合成、トグルの描画を組み込む
   - feedIdParamとisCollectionView(受信箱・カテゴリ・ブックマーク・お気に入り・既読済み・クリップの各ビューを除外する判定)から個別フィードページかどうかを判定する
   - 判定結果に応じてuseFeedUnreadOnlyへ実際のfeedIdまたはundefinedを渡す
   - unreadOnlyの算出に個別フィードの表示状態を合成する
