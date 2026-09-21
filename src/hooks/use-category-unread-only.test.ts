@@ -72,6 +72,37 @@ describe('useCategoryUnreadOnly', () => {
     expect(localStorage.getItem('category-unread-only:undefined')).toBeNull()
   })
 
+  it('ignores a legacy value change that happens after a per-category value was stored, even once re-derived via a categoryId round-trip', () => {
+    localStorage.setItem('category-unread-only', 'off')
+    const { result, rerender } = renderHook(
+      ({ categoryId }) => useCategoryUnreadOnly(categoryId),
+      {
+        initialProps: { categoryId: 1 as number | undefined },
+      },
+    )
+    expect(result.current[0]).toBe('off')
+
+    // Explicitly store a per-category value (here, coincidentally the same
+    // as the legacy value at this moment) so it is no longer "unset".
+    act(() => result.current[1]('off'))
+    expect(localStorage.getItem('category-unread-only:1')).toBe('off')
+
+    // The legacy key changes afterward (e.g. some unrelated write). If the
+    // hook incorrectly fell through to the legacy value instead of trusting
+    // the now-stored per-category value, this divergent value would surface
+    // once state is re-derived below.
+    localStorage.setItem('category-unread-only', 'on')
+
+    // Force re-derivation via a categoryId round-trip (the effect only runs
+    // when categoryId changes, mirroring how ArticleList re-derives on
+    // route changes rather than on every render).
+    rerender({ categoryId: 2 })
+    rerender({ categoryId: 1 })
+
+    // Must still be the stored 'off', not the new legacy 'on'.
+    expect(result.current[0]).toBe('off')
+  })
+
   it('re-derives state per categoryId and does not leak the previous categoryId value (regression)', () => {
     localStorage.setItem('category-unread-only:2', 'on')
     const { result, rerender } = renderHook(

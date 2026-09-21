@@ -1041,5 +1041,125 @@ describe('ArticleList', () => {
       expect(localStorage.getItem('category-unread-only:3')).toBe('off')
       expect(mockSetSize).toHaveBeenCalledWith(1)
     })
+
+    // -------------------------------------------------------------------------
+    // Category-switch integration: per-category unread-only state restoration
+    // (task 4). Mirrors "feed switching restores per-feed unread-only state
+    // (real hook + real navigation)" above. The unit tests in
+    // use-category-unread-only.test.ts already prove the hook re-derives
+    // correctly per categoryId in isolation (constructed fresh per test); these
+    // tests instead drive real react-router navigation across a single mounted
+    // ArticleList tree, since /categories/:categoryId has no `key` prop and
+    // ArticleList never remounts on folder switches (see design.md's "Existing
+    // Architecture Analysis" and its System Flows section) — the actual
+    // integration-level guarantee Requirements 5.1/5.2 describe.
+    // -------------------------------------------------------------------------
+    describe('category switching restores per-category unread-only state (real hook + real navigation)', () => {
+      beforeEach(() => {
+        setArticles([makeArticle({ id: 1 })])
+      })
+
+      it('does not leak an "on" state onto a category with no stored preference (the leak this feature was built to prevent)', () => {
+        renderArticleListWithNav('/categories/1')
+        fireEvent.click(screen.getByText('Unread only'))
+        expect(screen.getByText('Show all')).toBeTruthy()
+        expect(localStorage.getItem('category-unread-only:1')).toBe('on')
+
+        navigateTo('/categories/2')
+
+        // Category 2 has no stored preference: must show the default (off),
+        // not category 1's 'on' state carried over by a stale, un-rederived
+        // hook.
+        expect(screen.getByText('Unread only')).toBeTruthy()
+        expect(screen.queryByText('Show all')).toBeNull()
+      })
+
+      it('restores a stored "on" preference when navigating to a category that has one', () => {
+        localStorage.setItem('category-unread-only:2', 'on')
+        renderArticleListWithNav('/categories/1')
+        expect(screen.getByText('Unread only')).toBeTruthy()
+
+        navigateTo('/categories/2')
+
+        expect(screen.getByText('Show all')).toBeTruthy()
+      })
+
+      it('defaults to "off" (show all articles) for a category with no stored preference', () => {
+        renderArticleListWithNav('/categories/3')
+
+        expect(screen.getByText('Unread only')).toBeTruthy()
+        expect(screen.queryByText('Show all')).toBeNull()
+      })
+
+      it('restores each category\'s own state correctly across a three-way A -> B -> A navigation chain', () => {
+        renderArticleListWithNav('/categories/1')
+        fireEvent.click(screen.getByText('Unread only')) // Category 1: off -> on
+        expect(screen.getByText('Show all')).toBeTruthy()
+
+        navigateTo('/categories/2') // Category 2: no stored preference
+        expect(screen.getByText('Unread only')).toBeTruthy()
+        expect(screen.queryByText('Show all')).toBeNull()
+
+        navigateTo('/categories/1') // Back to category 1: must restore 'on', not category 2's 'off'
+        expect(screen.getByText('Show all')).toBeTruthy()
+        expect(screen.queryByText('Unread only')).toBeNull()
+      })
+    })
+
+    // -------------------------------------------------------------------------
+    // Migration fallback chain, end to end through ArticleList (task 4,
+    // Requirements 4.1 / 4.3 / 5.1 / 5.2).
+    //
+    // The existing tests above only ever set the per-category key directly;
+    // none of them set the legacy global key (`category-unread-only`, no
+    // suffix) and observe ArticleList itself pick it up as the initial state
+    // for a never-visited folder. This closes that gap, and additionally
+    // proves — through real navigation across several folders — that once a
+    // folder's state has been explicitly stored, later changes to the legacy
+    // key no longer affect it, while a still-untouched folder keeps tracking
+    // the legacy key's current value on each fresh visit.
+    // -------------------------------------------------------------------------
+    it('applies the legacy value as the initial state for an unvisited category, but a later legacy change only reaches categories that remain untouched', () => {
+      localStorage.setItem('category-unread-only', 'off')
+      renderArticleListWithNav('/categories/1')
+
+      // Category 1 has never been visited before: its initial state follows
+      // the legacy value ('off'), proving the migration fallback (4.1) works
+      // end to end through the real component, not just the hook in isolation.
+      expect(screen.getByText('Unread only')).toBeTruthy()
+
+      // Explicitly toggle category 1 on. This stores an explicit per-category
+      // value, which from now on must take priority over the legacy key (4.3).
+      fireEvent.click(screen.getByText('Unread only'))
+      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(localStorage.getItem('category-unread-only:1')).toBe('on')
+
+      // The legacy key changes after category 1's explicit override.
+      localStorage.setItem('category-unread-only', 'on')
+
+      // Category 2 has never been touched: navigating to it for the first
+      // time must reflect the *current* legacy value ('on'), and must not
+      // inherit category 1's state (5.1/5.2).
+      navigateTo('/categories/2')
+      expect(screen.getByText('Show all')).toBeTruthy()
+
+      // The legacy key changes again, to the opposite value.
+      localStorage.setItem('category-unread-only', 'off')
+
+      // Category 3, also never touched, must pick up this newest legacy
+      // value fresh -- confirming an untouched category always tracks the
+      // legacy key's current value rather than a value cached at some
+      // earlier point.
+      navigateTo('/categories/3')
+      expect(screen.getByText('Unread only')).toBeTruthy()
+
+      // Navigating back to category 1 must still show its explicit 'on'
+      // override, even though the legacy key is now 'off' -- the opposite of
+      // what category 1 would show if it were still (incorrectly) falling
+      // back to the legacy value instead of its own stored preference.
+      navigateTo('/categories/1')
+      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(localStorage.getItem('category-unread-only:1')).toBe('on')
+    })
   })
 })
