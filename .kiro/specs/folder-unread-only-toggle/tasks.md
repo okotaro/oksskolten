@@ -27,7 +27,7 @@
   - _Requirements: 4.2_
   - _Boundary: Settings UI, Settings sync, Server preferences_
 
-- [ ] 2. CategoryUnreadOnlyToggle コンポーネントを実装する
+- [x] 2. CategoryUnreadOnlyToggle コンポーネントを実装する
   - 現在の表示状態(すべて表示/未読のみ表示)に応じて、追加した文言キーでラベルを切り替えて表示する
   - クリック時にonToggleコールバックを呼ぶ
   - 状態の保持や永続化ロジックを持たない表示専用コンポーネントとして実装する
