@@ -67,6 +67,7 @@ Because Oksskolten always has the complete text, AI summarization and translatio
 - **Article Clipping** — Save any URL as an article, with full content extraction
 - **Bulk Mark-as-Read** — Right-click any article to mark everything above or below it as read, with a 10-second undo
 - **Feed Unread-Only Toggle** — Switch an individual feed's article list between showing all articles and unread only, remembered per feed
+- **Category Unread-Only Toggle** — The same show all / unread only switch for category (folder) article lists, remembered per category
 - **Theming** — 14 built-in color themes + custom theme import via JSON, 9 article fonts, 8 code highlighting styles
 - **Single Container** — API, SPA, and cron scheduler all run in one Docker container
 

@@ -8,7 +8,7 @@ Each individual feed's article list can be switched between "Show all" and "Show
 
 ## Motivation
 
-When a feed mixes read and unread articles, scanning only unread titles is difficult — read articles sit between the ones you actually want to check. Oksskolten already has an unread-only filter for the Inbox (always on) and for category views (a global setting, `reading.category_unread_only`), but individual feed pages had no equivalent, forcing users to scan the full mixed list.
+When a feed mixes read and unread articles, scanning only unread titles is difficult — read articles sit between the ones you actually want to check. Oksskolten already has an unread-only filter for the Inbox (always on) and, at the time this feature shipped, a global category setting, but individual feed pages had no equivalent, forcing users to scan the full mixed list. The category-level filter has since been replaced by a per-category toggle of its own — see [Category (Folder) Unread-Only Toggle](./88_feature_category_unread_only.md).
 
 ## Design
 
@@ -34,7 +34,7 @@ Toggling calls `setSize(1)` on the list's `useSWRInfinite` state and scrolls to 
 
 ### Out of Scope
 
-- Category views (the existing global `reading.category_unread_only` setting is unchanged)
+- Category views (see [Category (Folder) Unread-Only Toggle](./88_feature_category_unread_only.md) for the equivalent per-category mechanism)
 - Cross-device or server-side sync of the toggle state
 - Filtering by anything other than unread (favorites, likes, read)
 - Any change to how articles are marked read/unread (see Bulk Mark-as-Read)
