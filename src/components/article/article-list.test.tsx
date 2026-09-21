@@ -1003,5 +1003,43 @@ describe('ArticleList', () => {
       expect(capturedGetKey).toBeDefined()
       expect(capturedGetKey!(0, null)).toContain('unread=1')
     })
+
+    it('resets pagination when the category toggle is clicked', () => {
+      const mockSetSize = vi.fn()
+      setArticles([makeArticle({ id: 1 })])
+      swrInfiniteReturn.setSize = mockSetSize
+      renderArticleList('/categories/3')
+      fireEvent.click(screen.getByText('Unread only'))
+      expect(mockSetSize).toHaveBeenCalledWith(1)
+    })
+
+    it('scrolls to the top when the category toggle is clicked', () => {
+      setArticles([makeArticle({ id: 1 })])
+      renderArticleList('/categories/3')
+      fireEvent.click(screen.getByText('Unread only'))
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 0)
+    })
+
+    it('shows the reused empty-state guidance when the category unread-only view has no unread articles, and its button resets the toggle and pagination', () => {
+      localStorage.setItem('category-unread-only:3', 'on')
+      const mockSetSize = vi.fn()
+      swrInfiniteReturn = {
+        data: [{ articles: [], total: 0, has_more: false, total_all: 5 }],
+        error: undefined,
+        size: 1,
+        setSize: mockSetSize,
+        isLoading: false,
+        isValidating: false,
+        mutate: vi.fn(),
+      }
+      renderArticleList('/categories/3')
+      expect(screen.getByText('All caught up!')).toBeTruthy()
+      // The generic empty-list fallback must not render alongside this guidance.
+      expect(screen.queryByText('No articles')).toBeNull()
+
+      fireEvent.click(screen.getByText('Show read articles'))
+      expect(localStorage.getItem('category-unread-only:3')).toBe('off')
+      expect(mockSetSize).toHaveBeenCalledWith(1)
+    })
   })
 })

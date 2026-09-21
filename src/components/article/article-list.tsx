@@ -123,6 +123,11 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isEmpty = data?.[0]?.articles.length === 0
   const totalAll = data?.[0]?.total_all
   const feedAllReadEmpty = isEmpty && isPlainFeedView && feedUnreadOnly === 'on' && totalAll != null && totalAll > 0
+  const categoryAllReadEmpty = isEmpty && categoryId !== undefined && categoryUnreadOnly === 'on' && totalAll != null && totalAll > 0
+  // categoryAllReadEmpty and feedAllReadEmpty can never both be true at once:
+  // a category (folder) page and an individual feed page are mutually
+  // exclusive routes, so isPlainFeedView and categoryId !== undefined never
+  // hold simultaneously.
   const hiddenByFloor = data?.[0]?.total_without_floor != null
     ? data[0].total_without_floor - (data[0].total ?? 0)
     : 0
@@ -488,7 +493,11 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
       {categoryId !== undefined && (
         <CategoryUnreadOnlyToggle
           unreadOnly={categoryUnreadOnly === 'on'}
-          onToggle={() => setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')}
+          onToggle={() => {
+            setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
+            void setSize(1)
+            window.scrollTo(0, 0)
+          }}
         />
       )}
 
@@ -503,13 +512,18 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {feedAllReadEmpty && !isLoading && (
+      {(categoryAllReadEmpty || feedAllReadEmpty) && !isLoading && (
         <div className="text-center py-12">
           <p className="text-muted mb-3">{t('articles.allRead')}</p>
           <button
             onClick={() => {
-              setFeedUnreadOnly('off')
-              void setSize(1)
+              if (categoryAllReadEmpty) {
+                setCategoryUnreadOnly('off')
+                void setSize(1)
+              } else if (feedAllReadEmpty) {
+                setFeedUnreadOnly('off')
+                void setSize(1)
+              }
             }}
             className="text-accent text-sm hover:underline"
           >
@@ -518,7 +532,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {isEmpty && !feedAllReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
+      {isEmpty && !categoryAllReadEmpty && !feedAllReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
         <FeedErrorBanner
           lastError={currentFeed.last_error ?? ''}
           feedId={currentFeed.id}
@@ -526,7 +540,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         />
       )}
 
-      {isEmpty && !feedAllReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
+      {isEmpty && !categoryAllReadEmpty && !feedAllReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
         currentFeed?.last_error ? (
           <FeedErrorBanner
             lastError={currentFeed.last_error}
