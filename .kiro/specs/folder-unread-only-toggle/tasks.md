@@ -37,7 +37,7 @@
   - _Boundary: CategoryUnreadOnlyToggle_
 
 - [ ] 3. 統合: ArticleList への組み込み
-- [ ] 3.1 フォルダ判定とunreadOnlyへの合成、トグルの描画を組み込む
+- [x] 3.1 フォルダ判定とunreadOnlyへの合成、トグルの描画を組み込む
   - categoryIdの有無からフォルダページかどうかを判定し、useCategoryUnreadOnlyへ実際のcategoryIdまたはundefinedを渡す
   - unreadOnlyの算出を、既存のグローバル設定由来の項(`categoryUnreadOnly && !showReadArticles`)から、新しいフォルダ単位の値に置き換える
   - フォルダページでのみCategoryUnreadOnlyToggleを描画し、受信箱・個別フィード・ブックマーク・お気に入り・既読済み・クリップの各ビューでは描画しない
@@ -69,5 +69,6 @@
   - _Depends: 3.1, 3.2_
 
 ## Implementation Notes
+- Task 3.1 removed the old `allReadEmpty` (it depended on the deleted `showReadArticles`) and left the empty-state gate as `feedAllReadEmpty` alone. This is an intentional transitional state: a category unread-only view with 0 unread articles currently falls through to the generic `articles.empty` message instead of the "all caught up" guidance. Task 3.2 must add `categoryAllReadEmpty` back into that gate (`categoryAllReadEmpty || feedAllReadEmpty`) at all three usage sites (the guidance block itself, the `FeedErrorBanner` guard, and the generic-empty guard).
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22 (carried over from feed-unread-only-toggle's implementation notes).
 - ドキュメント更新(`docs/spec/`の新規ページ、`01_overview.md`、`87_feature_feed_unread_only.md`の記述修正、`README.md`)はタスク生成の対象外(Code-Only Focus)。design.mdのFile Structure Planに従い、実装完了後に`.claude/rules/docs.md`のルールに沿って別途反映すること(feed-unread-only-toggleの実装時と同じ運用)。

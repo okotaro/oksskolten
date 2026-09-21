@@ -167,7 +167,6 @@ const mockSettings = {
   setDateMode: vi.fn(),
   autoMarkRead: 'off' as const,
   setAutoMarkRead: vi.fn(),
-  categoryUnreadOnly: 'off' as const,
   showUnreadIndicator: 'on' as const,
   setShowUnreadIndicator: vi.fn(),
   indicatorStyle: 'dot' as const,
@@ -267,7 +266,6 @@ describe('ArticleList', () => {
     vi.clearAllMocks()
     swrFeedsData = undefined
     mockSettings.autoMarkRead = 'off' as any
-    mockSettings.categoryUnreadOnly = 'off' as any
     vi.mocked(useIsTouchDevice).mockReturnValue(false)
     vi.mocked(useClipFeedId).mockReturnValue(null)
     vi.mocked(useFeedUnreadOnly).mockReturnValue(['off', vi.fn()])
@@ -661,7 +659,7 @@ describe('ArticleList', () => {
     {
       name: 'category view sends the category id and its unread-only setting as the bulk scope',
       path: '/categories/3',
-      setup: () => { mockSettings.categoryUnreadOnly = 'on' as any },
+      setup: () => { localStorage.setItem('category-unread-only:3', 'on') },
       scope: { category_id: 3, unread: true },
     },
   ]
@@ -762,7 +760,12 @@ describe('ArticleList', () => {
     { name: 'the clips view', path: '/clips' },
   ]
 
-  it.each(noToggleViews)('does not render the feed unread-only toggle on $name', ({ path }) => {
+  // A category view is excluded here: it legitimately renders the *category*
+  // unread-only toggle (which shares the feed toggle's "Unread only"/"Show
+  // all" label text), covered separately below in "Category unread-only
+  // toggle (folder pages only)". This test only asserts the *feed* toggle's
+  // absence on views that render no toggle at all.
+  it.each(noToggleViews.filter(v => v.path !== '/categories/3'))('does not render the feed unread-only toggle on $name', ({ path }) => {
     setArticles([makeArticle({ id: 1 })])
     renderArticleList(path)
     expect(screen.queryByText('Unread only')).toBeNull()
@@ -932,6 +935,73 @@ describe('ArticleList', () => {
       navigateTo('/feeds/1') // Back to feed 1: must restore 'on', not feed 2's 'off'
       expect(screen.getByText('Show all')).toBeTruthy()
       expect(screen.queryByText('Unread only')).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Category (folder) unread-only toggle
+  //
+  // Unlike the feed toggle, useCategoryUnreadOnly is not mocked at the module
+  // level here: the real hook (real localStorage, cleared after every test by
+  // src/__tests__/setup.ts) is used throughout, since it has no dependencies
+  // that need stubbing and this keeps the per-category persistence genuinely
+  // under test rather than assumed.
+  // ---------------------------------------------------------------------------
+  describe('Category unread-only toggle (folder pages only)', () => {
+    it('renders the category unread-only toggle on a category page', () => {
+      setArticles([makeArticle({ id: 1 })])
+      renderArticleList('/categories/3')
+      expect(screen.getAllByText('Unread only').length).toBe(1)
+    })
+
+    const noCategoryToggleViews = [
+      { name: 'the inbox', path: '/inbox' },
+      { name: 'a plain feed view', path: '/feeds/1' },
+      { name: 'the bookmarks view', path: '/bookmarks' },
+      { name: 'the likes view', path: '/likes' },
+      { name: 'the history view', path: '/history' },
+      { name: 'the clips view', path: '/clips' },
+    ]
+
+    it.each(noCategoryToggleViews)('does not render the category unread-only toggle on $name', ({ path }) => {
+      if (path === '/feeds/1') setFeed(1)
+      setArticles([makeArticle({ id: 1, feed_id: 1 })])
+      renderArticleList(path)
+      // The category toggle's label text is identical to the feed toggle's
+      // ("Unread only" / "Show all"). On a plain feed view the feed toggle
+      // itself renders that text once; the category toggle must never add a
+      // second instance. On every other non-category view, neither renders.
+      expect(screen.queryAllByText('Unread only').length).toBeLessThanOrEqual(1)
+      expect(screen.queryAllByText('Show all').length).toBe(0)
+    })
+
+    it('does not include unread=1 in the fetch key when the category toggle is off (default)', () => {
+      setArticles([makeArticle({ id: 1 })])
+      renderArticleList('/categories/3')
+      expect(capturedGetKey).toBeDefined()
+      const key = capturedGetKey!(0, null)
+      expect(key).not.toContain('unread=1')
+    })
+
+    it('includes unread=1 in the fetch key when a stored per-category preference is on', () => {
+      localStorage.setItem('category-unread-only:3', 'on')
+      setArticles([makeArticle({ id: 1 })])
+      renderArticleList('/categories/3')
+      expect(capturedGetKey).toBeDefined()
+      const key = capturedGetKey!(0, null)
+      expect(key).toContain('unread=1')
+    })
+
+    it('flips to "unread only", persists it, and includes unread=1 in the fetch key when the toggle is clicked', () => {
+      setArticles([makeArticle({ id: 1 })])
+      renderArticleList('/categories/3')
+
+      fireEvent.click(screen.getByText('Unread only'))
+
+      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(localStorage.getItem('category-unread-only:3')).toBe('on')
+      expect(capturedGetKey).toBeDefined()
+      expect(capturedGetKey!(0, null)).toContain('unread=1')
     })
   })
 })
