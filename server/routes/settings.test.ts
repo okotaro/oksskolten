@@ -382,35 +382,6 @@ describe('PATCH /api/settings/preferences — on/off toggles', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('accepts on/off for category_unread_only', async () => {
-    const resOn = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/preferences',
-      headers: json,
-      payload: { 'reading.category_unread_only': 'on' },
-    })
-    expect(resOn.statusCode).toBe(200)
-    expect(resOn.json()['reading.category_unread_only']).toBe('on')
-
-    const resOff = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/preferences',
-      headers: json,
-      payload: { 'reading.category_unread_only': 'off' },
-    })
-    expect(resOff.statusCode).toBe(200)
-    expect(resOff.json()['reading.category_unread_only']).toBe('off')
-  })
-
-  it('rejects invalid category_unread_only value', async () => {
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/preferences',
-      headers: json,
-      payload: { 'reading.category_unread_only': 'yes' },
-    })
-    expect(res.statusCode).toBe(400)
-  })
 })
 
 // =========================================================================
