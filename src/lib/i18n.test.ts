@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { createElement } from 'react'
-import { LocaleContext, useI18n } from './i18n'
+import { LocaleContext, useI18n, isMessageKey } from './i18n'
 
 function makeWrapper(locale: 'ja' | 'en' | 'zh') {
   return ({ children }: { children: React.ReactNode }) =>
@@ -61,5 +61,23 @@ describe('useI18n', () => {
       expect(showAll.length).toBeGreaterThan(0)
       expect(showUnreadOnly).not.toBe(showAll)
     }
+  })
+
+  it('resolves category unread-only toggle labels to distinct, non-empty text in every locale', () => {
+    for (const locale of ['ja', 'en', 'zh'] as const) {
+      const { result } = renderHook(() => useI18n(), { wrapper: makeWrapper(locale) })
+      const showUnreadOnly = result.current.t('category.unreadOnlyToggle.showUnreadOnly')
+      const showAll = result.current.t('category.unreadOnlyToggle.showAll')
+      expect(showUnreadOnly.length).toBeGreaterThan(0)
+      expect(showAll.length).toBeGreaterThan(0)
+      expect(showUnreadOnly).not.toBe(showAll)
+    }
+  })
+
+  it('no longer exposes the removed global category-unread-only settings keys', () => {
+    expect(isMessageKey('settings.categoryUnreadOnly')).toBe(false)
+    expect(isMessageKey('settings.categoryUnreadOnlyDesc')).toBe(false)
+    expect(isMessageKey('settings.categoryUnreadOnlyOn')).toBe(false)
+    expect(isMessageKey('settings.categoryUnreadOnlyOff')).toBe(false)
   })
 })
