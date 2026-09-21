@@ -9,11 +9,15 @@ import { useI18n } from '../../lib/i18n'
 import { trackRead } from '../../lib/readTracker'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
+import { useFeedUnreadOnly } from '../../hooks/use-feed-unread-only'
+import { useCategoryUnreadOnly } from '../../hooks/use-category-unread-only'
 import { useBulkMarkRead } from '../../hooks/use-bulk-mark-read'
 import { useAppLayout } from '../../app'
 import { ArticleCard, type ArticleDisplayConfig } from './article-card'
 import { ArticleContextMenu } from './article-context-menu'
 import { FeedMetricsBar } from '../feed/feed-metrics-bar'
+import { FeedUnreadOnlyToggle } from './feed-unread-only-toggle'
+import { CategoryUnreadOnlyToggle } from './category-unread-only-toggle'
 import { SwipeableArticleCard } from './swipeable-article-card'
 import { articleUrlToPath } from '../../lib/url'
 import { ArticleOverlay } from './article-overlay'
@@ -59,14 +63,18 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
   const isCollectionView = isBookmarks || isLikes || isHistory || isClips
+  // An individual feed page: a route feed id is present and the view isn't
+  // one of the collection views above (inbox/category-only routes never set
+  // feedIdParam, so they're excluded naturally too).
+  const isPlainFeedView = Boolean(feedIdParam) && !isCollectionView
 
   const { data: feedsData } = useSWR<{ feeds: FeedWithCounts[] }>('/api/feeds', fetcher)
   const feedId = feedIdParam ? Number(feedIdParam) : (isClips && clipFeedId ? clipFeedId : undefined)
+  const [feedUnreadOnly, setFeedUnreadOnly] = useFeedUnreadOnly(isPlainFeedView ? feedId : undefined)
   const currentFeed = feedId && feedsData ? feedsData.feeds.find(f => f.id === feedId) : undefined
   const categoryId = categoryIdParam ? Number(categoryIdParam) : undefined
-  const [showReadArticles, setShowReadArticles] = useState(false)
-  const categoryUnreadOnly = !!categoryId && settings.categoryUnreadOnly === 'on'
-  const unreadOnly = isInbox || (categoryUnreadOnly && !showReadArticles)
+  const [categoryUnreadOnly, setCategoryUnreadOnly] = useCategoryUnreadOnly(categoryId)
+  const unreadOnly = isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')
   const bookmarkedOnly = isBookmarks
   const likedOnly = isLikes
   const readOnly = isHistory
@@ -114,7 +122,12 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const hasMore = data ? data[data.length - 1]?.has_more ?? false : false
   const isEmpty = data?.[0]?.articles.length === 0
   const totalAll = data?.[0]?.total_all
-  const allReadEmpty = isEmpty && categoryUnreadOnly && !showReadArticles && totalAll != null && totalAll > 0
+  const feedAllReadEmpty = isEmpty && isPlainFeedView && feedUnreadOnly === 'on' && totalAll != null && totalAll > 0
+  const categoryAllReadEmpty = isEmpty && categoryId !== undefined && categoryUnreadOnly === 'on' && totalAll != null && totalAll > 0
+  // categoryAllReadEmpty and feedAllReadEmpty can never both be true at once:
+  // a category (folder) page and an individual feed page are mutually
+  // exclusive routes, so isPlainFeedView and categoryId !== undefined never
+  // hold simultaneously.
   const hiddenByFloor = data?.[0]?.total_without_floor != null
     ? data[0].total_without_floor - (data[0].total ?? 0)
     : 0
@@ -401,11 +414,10 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     }
   }, [feedId, categoryId, flushBatch])
 
-  // Reset locallyReadIds, noFloor, showReadArticles, and keyboard focus when feed/category changes
+  // Reset locallyReadIds, noFloor, and keyboard focus when feed/category changes
   useEffect(() => {
     setLocallyReadIds(new Set())
     setNoFloor(false)
-    setShowReadArticles(false)
     setFocusedItemId(null)
   }, [feedId, categoryId, setFocusedItemId])
 
@@ -467,6 +479,28 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         <FeedMetricsBar feed={currentFeed} />
       )}
 
+      {isPlainFeedView && (
+        <FeedUnreadOnlyToggle
+          unreadOnly={feedUnreadOnly === 'on'}
+          onToggle={() => {
+            setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
+            void setSize(1)
+            window.scrollTo(0, 0)
+          }}
+        />
+      )}
+
+      {categoryId !== undefined && (
+        <CategoryUnreadOnlyToggle
+          unreadOnly={categoryUnreadOnly === 'on'}
+          onToggle={() => {
+            setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
+            void setSize(1)
+            window.scrollTo(0, 0)
+          }}
+        />
+      )}
+
       {isLoading && <ArticleListSkeleton layout={layout} showThumbnails={displayConfig.showThumbnails} />}
 
       {error && (
@@ -478,11 +512,19 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {allReadEmpty && !isLoading && (
+      {(categoryAllReadEmpty || feedAllReadEmpty) && !isLoading && (
         <div className="text-center py-12">
           <p className="text-muted mb-3">{t('articles.allRead')}</p>
           <button
-            onClick={() => setShowReadArticles(true)}
+            onClick={() => {
+              if (categoryAllReadEmpty) {
+                setCategoryUnreadOnly('off')
+                void setSize(1)
+              } else if (feedAllReadEmpty) {
+                setFeedUnreadOnly('off')
+                void setSize(1)
+              }
+            }}
             className="text-accent text-sm hover:underline"
           >
             {t('articles.showReadArticles')}
@@ -490,7 +532,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         </div>
       )}
 
-      {isEmpty && !allReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
+      {isEmpty && !categoryAllReadEmpty && !feedAllReadEmpty && !isLoading && currentFeed && feedId && progress.has(feedId) && (
         <FeedErrorBanner
           lastError={currentFeed.last_error ?? ''}
           feedId={currentFeed.id}
@@ -498,7 +540,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         />
       )}
 
-      {isEmpty && !allReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
+      {isEmpty && !categoryAllReadEmpty && !feedAllReadEmpty && !isLoading && !(feedId && progress.has(feedId)) && (
         currentFeed?.last_error ? (
           <FeedErrorBanner
             lastError={currentFeed.last_error}

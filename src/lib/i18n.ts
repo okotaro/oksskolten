@@ -76,6 +76,14 @@ const dict = {
   'articles.markReadAbove': { ja: 'これより上（新しい）を既読にする', en: 'Mark above (newer) as read', zh: '将上方（更新）标为已读'},
   'articles.markReadBelow': { ja: 'これより下（古い）を既読にする', en: 'Mark below (older) as read', zh: '将下方（更早）标为已读'},
 
+  // FeedUnreadOnlyToggle
+  'feed.unreadOnlyToggle.showUnreadOnly': { ja: '未読のみ表示', en: 'Unread only', zh: '仅未读'},
+  'feed.unreadOnlyToggle.showAll': { ja: 'すべて表示', en: 'Show all', zh: '显示全部'},
+
+  // CategoryUnreadOnlyToggle
+  'category.unreadOnlyToggle.showUnreadOnly': { ja: '未読のみ表示', en: 'Unread only', zh: '仅未读'},
+  'category.unreadOnlyToggle.showAll': { ja: 'すべて表示', en: 'Show all', zh: '显示全部'},
+
   // FeedErrorBanner - pipeline stages
   'feedError.stage.discovery': { ja: 'RSS検出', en: 'RSS Discovery', zh: 'RSS 发现'},
   'feedError.stage.bridge': { ja: 'Bridge変換', en: 'Bridge', zh: '桥接'},
@@ -334,14 +342,6 @@ const dict = {
   },
   'settings.internalLinksOn': { ja: 'オン', en: 'On', zh: '开'},
   'settings.internalLinksOff': { ja: 'オフ', en: 'Off', zh: '关'},
-  'settings.categoryUnreadOnly': { ja: 'カテゴリで未読のみ表示', en: 'Show Only Unread In Categories', zh: '分类中仅显示未读'},
-  'settings.categoryUnreadOnlyDesc': {
-    ja: 'カテゴリビューで未読記事のみを表示します（Inboxと同様の動作）',
-    en: 'Show only unread articles in category views (same behavior as Inbox)',
-    zh: '在分类视图中仅显示未读文章（与收件箱行为相同）'
-  },
-  'settings.categoryUnreadOnlyOn': { ja: 'オン', en: 'On', zh: '开'},
-  'settings.categoryUnreadOnlyOff': { ja: 'オフ', en: 'Off', zh: '关'},
 
   // Language
   'settings.language': { ja: '言語', en: 'Language', zh: '语言'},
