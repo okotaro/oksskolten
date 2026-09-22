@@ -1,4 +1,5 @@
 import { useI18n } from '../../lib/i18n'
+import { UnreadOnlyToggleSwitch } from '../ui/unread-only-toggle-switch'
 
 interface CategoryUnreadOnlyToggleProps {
   unreadOnly: boolean
@@ -15,11 +16,12 @@ interface CategoryUnreadOnlyToggleProps {
 export function CategoryUnreadOnlyToggle({ unreadOnly, onToggle }: CategoryUnreadOnlyToggleProps) {
   const { t } = useI18n()
 
-  const label = unreadOnly ? t('category.unreadOnlyToggle.showAll') : t('category.unreadOnlyToggle.showUnreadOnly')
-
   return (
-    <button onClick={() => onToggle()} className="text-accent text-sm hover:underline">
-      {label}
-    </button>
+    <UnreadOnlyToggleSwitch
+      unreadOnly={unreadOnly}
+      onChange={() => onToggle()}
+      showAllLabel={t('category.unreadOnlyToggle.showAll')}
+      unreadOnlyLabel={t('category.unreadOnlyToggle.showUnreadOnly')}
+    />
   )
 }

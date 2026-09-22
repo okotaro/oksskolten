@@ -100,6 +100,17 @@
   - _Requirements: 8.1, 8.2, 8.3_
   - _Depends: 5.2_
 
+- [x] 6. CategoryUnreadOnlyToggle を UnreadOnlyToggleSwitch へ移行する(要件9)
+
+  本タスクは `feed-unread-only-toggle` の Task 6.1 が新設する共有スイッチ `UnreadOnlyToggleSwitch` をそのまま再利用する。`feed-unread-only-toggle` の Task 6.1 が完了している前提で着手すること(新しいスイッチ実装をこちら側で複製しない)。
+  - 内部の描画をテキストリンクから `UnreadOnlyToggleSwitch`(`feed-unread-only-toggle` が新設)の利用に置き換える
+  - 外部向けprops(`{ unreadOnly, onToggle }`)は変更しない
+  - 既存の `category.unreadOnlyToggle.showAll`/`showUnreadOnly` の文言を各セグメントの `aria-label` として渡す
+  - 現在の状態と異なるセグメントがクリックされたときのみ `onToggle` を呼ぶ(旧テキストリンク実装の「常にonToggleが呼ばれる」前提を置き換える)
+  - コンポーネントテストが通り、両セグメントの `aria-label` が既存文言で描画され、状態と異なるセグメントのクリックでのみ `onToggle` が呼ばれることが確認できる状態になる
+  - _Requirements: 1.1, 1.5, 7.1, 9.1, 9.2, 9.3, 9.4_
+  - _Boundary: CategoryUnreadOnlyToggle_
+
 ## Implementation Notes
 - Task 3.1 removed the old `allReadEmpty` (it depended on the deleted `showReadArticles`) and left the empty-state gate as `feedAllReadEmpty` alone. This is an intentional transitional state: a category unread-only view with 0 unread articles currently falls through to the generic `articles.empty` message instead of the "all caught up" guidance. Task 3.2 must add `categoryAllReadEmpty` back into that gate (`categoryAllReadEmpty || feedAllReadEmpty`) at all three usage sites (the guidance block itself, the `FeedErrorBanner` guard, and the generic-empty guard).
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22 (carried over from feed-unread-only-toggle's implementation notes).
@@ -107,3 +118,5 @@
 - Task 5(要件8)は `feed-unread-only-toggle` の Task 5 に依存するクロススペック依存である。`headerRight` スロットと `ArticleListHandle` の命令的メソッドは `feed-unread-only-toggle` 側で実装されるため、`/kiro-impl folder-unread-only-toggle` の Task 5 を実行する前に `feed-unread-only-toggle` の Task 5 が完了していることを確認すること。
 - Task 5 実装時の学び: Requirement 4(レガシーのグローバル設定からの移行フォールバック)の結合テストは、`useCategoryUnreadOnly` の呼び出し元が `ArticleList` から `ArticleListPage` に移ったことに伴い、`article-list.test.tsx` から `app.test.tsx` へそのまま移設した(カバレッジの欠落なし)。フックの呼び出し元を変更する際は、その呼び出し元に依存していた結合テスト一式(ナビゲーション経由の状態復元・移行フォールバックの検証など)もセットで移設が必要になる点に注意。
 - `headerRight`/`resetPagingAndScroll` はいずれも再利用のみで、本タスクでの再定義・複製は無し(独立レビューで確認済み)。
+- Task 6(要件9)は `feed-unread-only-toggle` の Task 6.1 に依存するクロススペック依存である。共有スイッチ `UnreadOnlyToggleSwitch`(`src/components/ui/`)は `feed-unread-only-toggle` 側で実装されるため、`/kiro-impl folder-unread-only-toggle` の Task 6 を実行する前に `feed-unread-only-toggle` の Task 6.1 が完了していることを確認すること。
+- Task 6 実装時の学び: `CategoryUnreadOnlyToggle` が可視テキストではなく `aria-label` で文言を持つようになったため、`src/app.test.tsx` のカテゴリ側 `getByText('Unread only'|'Show all')` アサーションが軒並み壊れた(feed側は前タスクで既に修正済みだったため今回はカテゴリ側のみ)。`getByRole('button', { name: ... })` と `.getAttribute('aria-pressed')` に置き換えて修正。「フィード/フォルダの両トグルが同時に描画されない」検証テストは、両トグルが同じ `UnreadOnlyToggleSwitch`(`role="group"`)を使うようになったため、feedタスク側で導入した「`role="group"` の有無」による判別が無効化された。`getAllByRole('group').length === 1` のカウントベース判定に書き換えて対応(レビュー1回目でREJECTED、`noCategoryToggleViews` の `toBeLessThanOrEqual(1)` が5/6ビューで検出力を落としていた点を指摘され、`/feeds/1` のみ1件・それ以外は0件の厳密比較に修正して2回目でAPPROVED)。この種の「片方のコンポーネントだけ先に変わる」タスクでは、もう片方が変わった後に元の緩い比較(`<=`)が検出力を失っていないか再確認すること。

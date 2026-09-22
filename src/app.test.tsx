@@ -241,7 +241,7 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
   it('renders the category unread-only toggle in the header on a category page', () => {
     setCategory(3)
     renderArticleListPage('/categories/3')
-    expect(screen.getByText('Unread only')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' })).toBeTruthy()
   })
 
   const noCategoryToggleViews = [
@@ -256,11 +256,13 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
   it.each(noCategoryToggleViews)('does not render the category unread-only toggle on $name', ({ path }) => {
     if (path === '/feeds/1') setFeed(1)
     renderArticleListPage(path)
-    // On a plain feed view the feed toggle renders this same text once; the
-    // category toggle must never add a second instance. Everywhere else,
-    // neither renders.
-    expect(screen.queryAllByText('Unread only').length).toBeLessThanOrEqual(1)
-    expect(screen.queryAllByText('Show all').length).toBe(0)
+    // On a plain feed view the feed toggle legitimately renders one instance
+    // of each segment; the category toggle must never add a second one.
+    // Everywhere else, neither toggle renders at all, so both counts must be
+    // exactly 0 there.
+    const expectedCount = path === '/feeds/1' ? 1 : 0
+    expect(screen.queryAllByRole('button', { name: 'Unread only' }).length).toBe(expectedCount)
+    expect(screen.queryAllByRole('button', { name: 'Show all' }).length).toBe(expectedCount)
   })
 
   it('passes the current categoryUnreadOnly state down to ArticleList as a prop', () => {
@@ -274,29 +276,29 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     setCategory(3)
     renderArticleListPage('/categories/3')
 
-    fireEvent.click(screen.getByText('Unread only'))
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
 
     expect(localStorage.getItem('category-unread-only:3')).toBe('on')
     expect(resetPagingAndScrollSpy).toHaveBeenCalledOnce()
-    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('shows only one toggle at a time when navigating between a feed page and a category page', () => {
     setFeed(1)
     setCategory(3)
     renderArticleListPageWithNav('/feeds/1')
-    // The feed toggle (UnreadOnlyToggleSwitch) renders inside a `group` role;
-    // the category toggle (still a plain text-link button) does not. Exactly
-    // one "Unread only"-named control must exist regardless of which one.
-    expect(screen.getByRole('group')).toBeTruthy()
+    // Both the feed and category toggles render as a single UnreadOnlyToggleSwitch
+    // (`role="group"`, one "Unread only"-named segment inside it). Exactly one
+    // of each must exist regardless of which page's toggle is active.
+    expect(screen.getAllByRole('group').length).toBe(1)
     expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
 
     navigateTo('/categories/3')
-    expect(screen.queryByRole('group')).toBeNull()
+    expect(screen.getAllByRole('group').length).toBe(1)
     expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
 
     navigateTo('/feeds/1')
-    expect(screen.getByRole('group')).toBeTruthy()
+    expect(screen.getAllByRole('group').length).toBe(1)
     expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
   })
 
@@ -307,25 +309,25 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
 
     it('does not leak an "on" state onto a category with no stored preference', () => {
       renderArticleListPageWithNav('/categories/1')
-      fireEvent.click(screen.getByText('Unread only'))
-      expect(screen.getByText('Show all')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
 
       setCategory(2)
       navigateTo('/categories/2')
 
-      expect(screen.getByText('Unread only')).toBeTruthy()
-      expect(screen.queryByText('Show all')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
+      expect(screen.getByRole('button', { name: 'Show all' }).getAttribute('aria-pressed')).toBe('true')
     })
 
     it('restores a stored "on" preference when navigating to a category that has one', () => {
       localStorage.setItem('category-unread-only:2', 'on')
       renderArticleListPageWithNav('/categories/1')
-      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
 
       setCategory(2)
       navigateTo('/categories/2')
 
-      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
     })
   })
 
@@ -343,12 +345,12 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
 
     // Category 1 has never been visited before: its initial state follows
     // the legacy value ('off').
-    expect(screen.getByText('Unread only')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
 
     // Explicitly toggle category 1 on. From now on this takes priority over
     // the legacy key for category 1.
-    fireEvent.click(screen.getByText('Unread only'))
-    expect(screen.getByText('Show all')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
     expect(localStorage.getItem('category-unread-only:1')).toBe('on')
 
     // The legacy key changes after category 1's explicit override.
@@ -358,7 +360,7 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     // legacy value ('on'), not inherit category 1's state.
     setCategory(2)
     navigateTo('/categories/2')
-    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
 
     // The legacy key flips again.
     localStorage.setItem('category-unread-only', 'off')
@@ -366,13 +368,13 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     // Category 3, also untouched, picks up this newest legacy value fresh.
     setCategory(3)
     navigateTo('/categories/3')
-    expect(screen.getByText('Unread only')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
 
     // Category 1 still shows its explicit 'on' override, even though the
     // legacy key is now 'off'.
     setCategory(1)
     navigateTo('/categories/1')
-    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
     expect(localStorage.getItem('category-unread-only:1')).toBe('on')
   })
 })
