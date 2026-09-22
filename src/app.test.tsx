@@ -153,7 +153,7 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
   it('renders the feed unread-only toggle in the header on a plain feed page', () => {
     setFeed(1)
     renderArticleListPage('/feeds/1')
-    expect(screen.getByText('Unread only')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' })).toBeTruthy()
   })
 
   const noToggleViews = [
@@ -189,11 +189,11 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     setFeed(1)
     renderArticleListPage('/feeds/1')
 
-    fireEvent.click(screen.getByText('Unread only'))
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
 
     expect(localStorage.getItem('feed-unread-only:1')).toBe('on')
     expect(resetPagingAndScrollSpy).toHaveBeenCalledOnce()
-    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   // ---------------------------------------------------------------------------
@@ -210,25 +210,25 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
 
     it('does not leak an "on" state onto a feed with no stored preference', () => {
       renderArticleListPageWithNav('/feeds/1')
-      fireEvent.click(screen.getByText('Unread only'))
-      expect(screen.getByText('Show all')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
 
       setFeed(2)
       navigateTo('/feeds/2')
 
-      expect(screen.getByText('Unread only')).toBeTruthy()
-      expect(screen.queryByText('Show all')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
+      expect(screen.getByRole('button', { name: 'Show all' }).getAttribute('aria-pressed')).toBe('true')
     })
 
     it('restores a stored "on" preference when navigating to a feed that has one', () => {
       localStorage.setItem('feed-unread-only:2', 'on')
       renderArticleListPageWithNav('/feeds/1')
-      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
 
       setFeed(2)
       navigateTo('/feeds/2')
 
-      expect(screen.getByText('Show all')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
     })
   })
 
@@ -285,13 +285,19 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     setFeed(1)
     setCategory(3)
     renderArticleListPageWithNav('/feeds/1')
-    expect(screen.getAllByText('Unread only').length).toBe(1)
+    // The feed toggle (UnreadOnlyToggleSwitch) renders inside a `group` role;
+    // the category toggle (still a plain text-link button) does not. Exactly
+    // one "Unread only"-named control must exist regardless of which one.
+    expect(screen.getByRole('group')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
 
     navigateTo('/categories/3')
-    expect(screen.getAllByText('Unread only').length).toBe(1)
+    expect(screen.queryByRole('group')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
 
     navigateTo('/feeds/1')
-    expect(screen.getAllByText('Unread only').length).toBe(1)
+    expect(screen.getByRole('group')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Unread only' }).length).toBe(1)
   })
 
   describe('category switching restores per-category unread-only state (real navigation)', () => {

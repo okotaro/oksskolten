@@ -95,6 +95,27 @@
   - _Requirements: 7.1, 7.2, 7.3_
   - _Depends: 5.3_
 
+- [x] 6. 表示状態のひと目での判別(要件8): 共有トグルスイッチの新設とFeedUnreadOnlyToggleへの統合
+- [x] 6.1 UnreadOnlyToggleSwitch を実装する
+  - 「すべて表示」「未読のみ表示」の2セグメントを常に両方描画する
+  - 現在選択されている側のセグメントを、既存Buttonのdefaultバリアントと同じテーマトークンで強調表示する
+  - 現在選択されていない側のセグメントがクリックされたときのみonChangeを呼ぶ(選択中のセグメントのクリックでは呼ばない)
+  - 各セグメントのaria-labelを呼び出し元から渡された文字列で設定する(このコンポーネント自身は文言を持たない)
+  - 新しい配色トークンを追加せず、既存のButtonと同じテーマトークンのみを使う
+  - コンポーネントテストが通り、unreadOnlyの値に関わらず両セグメントが常に描画され、アクティブ側の強調表示と、選択が変わるクリックでのみonChangeが呼ばれることが確認できる状態になる
+  - _Requirements: 8.1, 8.2, 8.3, 8.4_
+  - _Boundary: UnreadOnlyToggleSwitch_
+
+- [x] 6.2 FeedUnreadOnlyToggle を UnreadOnlyToggleSwitch を使う実装に置き換える
+  - 内部の描画をテキストリンクからUnreadOnlyToggleSwitchの利用に置き換える
+  - 外部向けprops({unreadOnly, onToggle})は変更しない
+  - 既存のfeed.unreadOnlyToggle.showAll/showUnreadOnlyの文言を各セグメントのaria-labelとして渡す
+  - 現在の状態と異なるセグメントがクリックされたときのみonToggleを呼ぶ(旧テキストリンク実装の「常にonToggleが呼ばれる」前提を置き換える)
+  - コンポーネントテストが通り、両セグメントのaria-labelが既存文言で描画され、状態と異なるセグメントのクリックでのみonToggleが呼ばれることが確認できる状態になる
+  - _Requirements: 1.1, 1.5, 6.1, 8.1, 8.2, 8.3, 8.4_
+  - _Depends: 6.1_
+  - _Boundary: FeedUnreadOnlyToggle_
+
 ## Implementation Notes
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22.
 - `feedAllReadEmpty`を追加した際、既存の`isEmpty && !allReadEmpty && !isLoading`ゲート(FeedErrorBanner/汎用の空メッセージ)も`!feedAllReadEmpty`を除外条件に加える必要があった。`allReadEmpty`同様、他の空状態フォールバックと二重表示しないよう、新しい空状態フラグを追加する際は既存の`isEmpty`系フォールバック条件も併せて見直すこと。
@@ -104,3 +125,5 @@
   - design.md の File Structure Plan は `page-layout.test.tsx` の新設を挙げていたが、`PageLayout` は `useAppLayout()`(ルーターの outlet context)と `FeedList` に依存しており、単体でのモック構築コストの割に得られる検証が薄いと判断し、代わりに `src/app.test.tsx` で `ArticleListPage → PageLayout → Header` を実際にマウントする結合テストで `headerRight` の配線を検証した。`page-layout.test.tsx` は意図的に作成していない。
   - `useFeedUnreadOnly` の呼び出し元が `ArticleList` から `ArticleListPage` に移ったため、フィード切り替え時の状態復元を検証していた `article-list.test.tsx` 内の記事一覧テストは、同等のシナリオを `app.test.tsx` 側の結合テストへ移設した(カバレッジの欠落なし)。
   - `CategoryUnreadOnlyToggle`(フォルダ用トグル)は本タスクでは意図的に未変更のまま `article-list.tsx` に残置した。これを移動するのは `folder-unread-only-toggle` の対応タスクの責務。
+- Task 6(要件8)は `folder-unread-only-toggle` の対応タスクの前提になる。Task 6.1 が新設する `UnreadOnlyToggleSwitch`(`src/components/ui/`)は、`headerRight`(Task 5.1)と同様にこのスペックが新設・所有する共有UIプリミティブであり、`folder-unread-only-toggle` 側はこれを複製せずそのまま再利用する設計になっている(design.md の Allowed Dependencies / Revalidation Triggers 参照)。`/kiro-impl folder-unread-only-toggle` の対応タスクを実行する前に、本スペックの Task 6.1 が完了していることを確認すること。
+- Task 6.2 実装時の学び: `FeedUnreadOnlyToggle` が文言を可視テキストではなく各セグメントの `aria-label` として持つようになったため、`src/app.test.tsx` の既存のページレベルテストのうち `getByText('Unread only'|'Show all')` でフィード用トグルを検出していたものが軒並み壊れた(可視テキストが無くなったため)。`getByRole('button', { name: ... })` と `.getAttribute('aria-pressed')` に置き換えて修正した。`CategoryUnreadOnlyToggle`(フォルダ用、本タスクでは未変更)は引き続きテキストリンクのままなので、そちらのアサーションは意図的に変更していない。フィード・フォルダ両トグルが同時に描画されないことを検証するテスト(`shows only one toggle at a time...`)は、`UnreadOnlyToggleSwitch` だけが持つ `role="group"` の有無をフィード/フォルダの判別シグナルとして使うよう書き換えた。`folder-unread-only-toggle` の対応タスク(Task 6)で `CategoryUnreadOnlyToggle` も `UnreadOnlyToggleSwitch` に置き換わると、この `role="group"` ベースの判別は両ページで真になり意味を失うため、その時点で該当テストの見直しが必要になる。
