@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useI18n } from '../../lib/i18n'
 import { IconButton } from '../ui/icon-button'
 
@@ -10,9 +11,12 @@ interface HeaderProps {
   detailTitle?: string | null
   isScrolled?: boolean
   sidebarOpen?: boolean
+  /** Content rendered in the fixed-position right slot (list mode only). Its
+   * position does not depend on the title's length. */
+  headerRight?: ReactNode
 }
 
-export function Header({ mode, onMenuClick, onBack, feedName, detailTitle, isScrolled, sidebarOpen }: HeaderProps) {
+export function Header({ mode, onMenuClick, onBack, feedName, detailTitle, isScrolled, sidebarOpen, headerRight }: HeaderProps) {
   const { t } = useI18n()
 
   return (
@@ -39,14 +43,16 @@ export function Header({ mode, onMenuClick, onBack, feedName, detailTitle, isScr
               <path d="M3 5h14M3 10h14M3 15h14" />
             </svg>
           </IconButton>
-          <div className="flex-1 flex justify-center">
+          <div className="flex-1 flex justify-center min-w-0">
             {feedName && (
-              <span className="text-[15px] font-semibold text-text">
+              <span className="text-[15px] font-semibold text-text truncate">
                 {feedName}
               </span>
             )}
           </div>
-          <span className="w-8" />
+          <div className="min-w-8 shrink-0 flex items-center justify-end">
+            {headerRight}
+          </div>
         </>
       ) : (
         <>

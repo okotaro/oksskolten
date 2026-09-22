@@ -9,14 +9,13 @@ import { useI18n } from '../../lib/i18n'
 import { trackRead } from '../../lib/readTracker'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
-import { useFeedUnreadOnly } from '../../hooks/use-feed-unread-only'
+import type { FeedUnreadOnlyState } from '../../hooks/use-feed-unread-only'
 import { useCategoryUnreadOnly } from '../../hooks/use-category-unread-only'
 import { useBulkMarkRead } from '../../hooks/use-bulk-mark-read'
 import { useAppLayout } from '../../app'
 import { ArticleCard, type ArticleDisplayConfig } from './article-card'
 import { ArticleContextMenu } from './article-context-menu'
 import { FeedMetricsBar } from '../feed/feed-metrics-bar'
-import { FeedUnreadOnlyToggle } from './feed-unread-only-toggle'
 import { CategoryUnreadOnlyToggle } from './category-unread-only-toggle'
 import { SwipeableArticleCard } from './swipeable-article-card'
 import { articleUrlToPath } from '../../lib/url'
@@ -48,9 +47,21 @@ const BATCH_FLUSH_INTERVAL = 1500
 
 export interface ArticleListHandle {
   revalidate: () => void
+  /** Resets pagination to the first page and scrolls the list to the top.
+   * Called by the page component after flipping a feed/category unread-only
+   * toggle rendered in the header. */
+  resetPagingAndScroll: () => void
 }
 
-export const ArticleList = forwardRef<ArticleListHandle, object>(function ArticleList(_props, ref) {
+interface ArticleListProps {
+  /** Current feed unread-only display state. Ignored unless the current
+   * route is an individual feed page. */
+  feedUnreadOnly: FeedUnreadOnlyState
+  /** Called when the empty-state guidance asks to switch back to "show all". */
+  onFeedUnreadOnlyChange: (next: FeedUnreadOnlyState) => void
+}
+
+export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(function ArticleList({ feedUnreadOnly, onFeedUnreadOnlyChange }, ref) {
   const location = useLocation()
   const navigate = useNavigate()
   const { feedId: feedIdParam, categoryId: categoryIdParam } = useParams<{ feedId?: string; categoryId?: string }>()
@@ -70,7 +81,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
 
   const { data: feedsData } = useSWR<{ feeds: FeedWithCounts[] }>('/api/feeds', fetcher)
   const feedId = feedIdParam ? Number(feedIdParam) : (isClips && clipFeedId ? clipFeedId : undefined)
-  const [feedUnreadOnly, setFeedUnreadOnly] = useFeedUnreadOnly(isPlainFeedView ? feedId : undefined)
   const currentFeed = feedId && feedsData ? feedsData.feeds.find(f => f.id === feedId) : undefined
   const categoryId = categoryIdParam ? Number(categoryIdParam) : undefined
   const [categoryUnreadOnly, setCategoryUnreadOnly] = useCategoryUnreadOnly(categoryId)
@@ -116,7 +126,11 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
 
   useImperativeHandle(ref, () => ({
     revalidate: () => mutate(),
-  }), [mutate])
+    resetPagingAndScroll: () => {
+      void setSize(1)
+      window.scrollTo(0, 0)
+    },
+  }), [mutate, setSize])
 
   const articles = useMemo(() => data ? data.flatMap(page => page.articles) : [], [data])
   const hasMore = data ? data[data.length - 1]?.has_more ?? false : false
@@ -479,17 +493,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
         <FeedMetricsBar feed={currentFeed} />
       )}
 
-      {isPlainFeedView && (
-        <FeedUnreadOnlyToggle
-          unreadOnly={feedUnreadOnly === 'on'}
-          onToggle={() => {
-            setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
-            void setSize(1)
-            window.scrollTo(0, 0)
-          }}
-        />
-      )}
-
       {categoryId !== undefined && (
         <CategoryUnreadOnlyToggle
           unreadOnly={categoryUnreadOnly === 'on'}
@@ -521,7 +524,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
                 setCategoryUnreadOnly('off')
                 void setSize(1)
               } else if (feedAllReadEmpty) {
-                setFeedUnreadOnly('off')
+                onFeedUnreadOnlyChange('off')
                 void setSize(1)
               }
             }}

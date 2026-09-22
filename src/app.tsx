@@ -11,6 +11,8 @@ import { saveScrollPosition, restoreScrollPosition } from './hooks/use-scroll-re
 import { useSwipeDrawer } from './hooks/use-swipe-drawer'
 import { Header } from './components/layout/header'
 import { ArticleList, type ArticleListHandle } from './components/article/article-list'
+import { FeedUnreadOnlyToggle } from './components/article/feed-unread-only-toggle'
+import { useFeedUnreadOnly } from './hooks/use-feed-unread-only'
 import { ArticleDetail } from './components/article/article-detail'
 import { ArticleRawPage } from './components/article/article-raw-page'
 import { PageLayout } from './components/layout/page-layout'
@@ -122,7 +124,7 @@ export function useAppLayout() {
   return useOutletContext<AppLayoutContext>()
 }
 
-function ArticleListPage() {
+export function ArticleListPage() {
   const { feedId, categoryId } = useParams<{ feedId?: string; categoryId?: string }>()
   const location = useLocation()
   const { t } = useI18n()
@@ -153,17 +155,34 @@ function ArticleListPage() {
   const articleListRef = useRef<ArticleListHandle>(null)
   const revalidateArticles = useCallback(() => articleListRef.current?.revalidate(), [])
 
+  // An individual feed page: a route feed id is present. Every other route
+  // (inbox, categories, bookmarks, likes, history, clips) never sets this
+  // param, so its presence alone identifies a plain feed page.
+  const isPlainFeedView = Boolean(feedId)
+  const [feedUnreadOnly, setFeedUnreadOnly] = useFeedUnreadOnly(isPlainFeedView ? Number(feedId) : undefined)
+
+  const headerRight = isPlainFeedView ? (
+    <FeedUnreadOnlyToggle
+      unreadOnly={feedUnreadOnly === 'on'}
+      onToggle={() => {
+        setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
+        articleListRef.current?.resetPagingAndScroll()
+      }}
+    />
+  ) : undefined
+
   return (
     <PageLayout
       feedName={headerName}
       feedListProps={{ onMarkAllRead: revalidateArticles, onArticleMoved: revalidateArticles }}
+      headerRight={headerRight}
     >
       {isInbox && <HintBanner storageKey="hint-dismissed-inbox">{t('hint.inbox')}</HintBanner>}
       {isBookmarks && <HintBanner storageKey="hint-dismissed-bookmarks">{t('hint.bookmarks')}</HintBanner>}
       {isLikes && <HintBanner storageKey="hint-dismissed-likes">{t('hint.likes')}</HintBanner>}
       {isHistory && <HintBanner storageKey="hint-dismissed-history">{t('hint.history')}</HintBanner>}
       {isClips && <HintBanner storageKey="hint-dismissed-clips">{t('hint.clips')}</HintBanner>}
-      <ArticleList ref={articleListRef} />
+      <ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={setFeedUnreadOnly} />
     </PageLayout>
   )
 }
