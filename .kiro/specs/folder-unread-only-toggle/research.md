@@ -29,6 +29,12 @@
 - **Findings**: The feed feature's hook intentionally avoids `createLocalStorageHook` because that factory closes over a fixed key and only reads it once via `useState`'s lazy initializer — unsuitable when the same hook instance must re-derive its value as a route param (`feedId`, here `categoryId`) changes without a remount. It instead uses `useState` + a `useEffect` keyed on the id.
 - **Implications**: The new `useCategoryUnreadOnly(categoryId)` hook follows the exact same shape as `useFeedUnreadOnly(feedId)`, with one deviation: its fallback default for an unrecorded category is the last known value of the legacy global setting instead of a hardcoded `'off'` (see Decision: Migration Default below).
 
+### Header placement fix carried over from feed-unread-only-toggle (Issue #14)
+- **Context**: After both toggles shipped, [Issue #14](https://github.com/okotaro/oksskolten/issues/14) reported that the unread/read toggle scrolls out of view with the article list. `feed-unread-only-toggle` addressed this by lifting its toggle's state and click handler to `ArticleListPage` and rendering it through a new `headerRight` slot on `PageLayout`/`Header` (see `feed-unread-only-toggle/research.md`, "トグルがスクロールで隠れる問題(Issue #14)への対応").
+- **Sources Consulted**: `feed-unread-only-toggle/design.md` (updated), `src/components/layout/header.tsx`, `src/app.tsx`.
+- **Findings**: The `headerRight` slot and the `ArticleListHandle.resetPagingAndScroll` method are generic — neither is specific to the feed toggle. `categoryId` and `isPlainFeedView` are mutually exclusive on the current routes, so both toggles can share the same slot without ever colliding.
+- **Implications**: This feature does not introduce a second slot or a duplicate reset method. `useCategoryUnreadOnly`'s call site moves from `ArticleList` to `ArticleListPage` (mirroring the feed feature), and `CategoryUnreadOnlyToggle` is rendered into the existing `headerRight` slot. `resetPagingAndScroll` is reused as-is.
+
 ## Architecture Pattern Evaluation
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
@@ -69,11 +75,22 @@
 - **Trade-offs**: None.
 - **Follow-up**: None.
 
+### Decision: Reuse the `headerRight` slot instead of introducing a second one
+- **Context**: Both toggles need to render in the same persistently-visible header area, but they belong to separate specs.
+- **Alternatives Considered**:
+  1. Add a second, category-specific slot to `Header`/`PageLayout`.
+  2. Reuse the single `headerRight` slot introduced by `feed-unread-only-toggle`, since `categoryId` and `isPlainFeedView` never hold at the same time.
+- **Selected Approach**: Option 2.
+- **Rationale**: The two toggles are already mutually exclusive by route; a second slot would be dead code on every route and would duplicate a mechanism that already exists.
+- **Trade-offs**: This feature depends on `feed-unread-only-toggle`'s `headerRight` prop and `ArticleListHandle.resetPagingAndScroll` shape remaining stable (see design.md Revalidation Triggers).
+- **Follow-up**: None.
+
 ## Risks & Mitigations
 - Risk: A reviewer or future change might reintroduce a global-setting-style control for categories, recreating the dual-source-of-truth problem this change removes — Mitigation: `Revalidation Triggers` below calls this out explicitly.
 - Risk: `docs/spec/87_feature_feed_unread_only.md` currently documents the (now removed) global setting as a sibling concept ("category views ... a global setting") — Mitigation: File Structure Plan includes updating that doc alongside the new one.
 - Risk: Forgetting to remove `reading.category_unread_only` from `server/routes/settings.ts` `PREF_KEYS`/`PREF_ALLOWED` while removing the frontend wiring would leave dead server-side code (harmless) or, if done the other way around, would cause 400s on the frontend's now-absent PATCH calls — Mitigation: File Structure Plan lists both files together per `.claude/rules/settings-sync.md`.
 
 ## References
-- [feed-unread-only-toggle design](../feed-unread-only-toggle/design.md) — direct architectural precedent for this feature.
+- [feed-unread-only-toggle design](../feed-unread-only-toggle/design.md) — direct architectural precedent for this feature, including the shared `headerRight` slot.
 - [feed-unread-only-toggle requirements](../feed-unread-only-toggle/requirements.md) — Out-of-scope note that named the global category setting this feature now replaces.
+- [Issue #14](https://github.com/okotaro/oksskolten/issues/14) — toggle-hidden-by-scroll fix that introduced the shared `headerRight` slot.

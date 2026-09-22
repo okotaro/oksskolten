@@ -57,6 +57,50 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.2_
   - _Depends: 3.1, 3.2_
 
+- [x] 5. ヘッダーへの表示位置移動(要件7、Issue #14)
+- [x] 5.1 (P) Header/PageLayout にヘッダー右側の汎用アクションスロットを追加する
+  - `HeaderProps`/`PageLayoutProps` に `headerRight` を追加し、list モードのヘッダー右側の既存スペーサーをこのスロットを描画する要素に置き換える
+  - `headerRight` が指定されないときは既存と同じ見た目(空のスペーサー)を保つ(他ビューでの回帰防止)
+  - スロットの描画位置がタイトル文字列の長さに依存しないことを確認する
+  - コンポーネントテストが通り、`headerRight` の内容の有無・タイトルの長さによらずスロット自体の描画位置が変わらないことが確認できる状態になる
+  - _Requirements: 7.1, 7.2, 7.3_
+  - _Boundary: Header, PageLayout_
+
+- [x] 5.2 (P) ArticleList: ページング・スクロールリセットの命令的公開とprops経由のfeedUnreadOnlyへの移行
+  - 既存の `revalidate` と同じ仕組みで、`setSize(1)` と一覧先頭へのスクロールを実行する命令的メソッドを `ArticleListHandle` に追加する
+  - `ArticleList` が `useFeedUnreadOnly` を直接呼び出すのをやめ、フィード単位の表示状態と変更コールバックを props として受け取るように変更する
+  - トグル自体の描画(JSX)を `ArticleList` から削除する(ヘッダー側で描画されるため)
+  - 空状態案内のボタンは、渡された変更コールバックで状態を戻したのち引き続き `setSize(1)` する
+  - 既存の受信箱・カテゴリ・ブックマーク等のビューでの `unreadOnly` 算出・トグル非表示の挙動に回帰が無いことを確認する
+  - 単体テストが通り、命令的メソッドの呼び出しで `setSize(1)` とスクロールが実行され、`ArticleList` 自身はトグルを描画しないことが確認できる状態になる
+  - _Requirements: 1.2, 1.3, 1.4, 2.1, 2.2, 5.1, 5.2_
+  - _Boundary: ArticleList_
+
+- [x] 5.3 ArticleListPage の配線: フィード用トグルをヘッダーへ統合する
+  - ページコンポーネントでフィードIDから個別フィードページかどうかを判定し、`useFeedUnreadOnly` を呼び出す
+  - 個別フィードページのときトグル要素を生成し、ヘッダーの新しいアクションスロットへ渡す
+  - トグルのクリックハンドラで状態を反転させたのち、`ArticleList` の命令的メソッド経由でページング・スクロールをリセットする
+  - `ArticleList` へは表示状態の値と変更コールバックを props として渡す
+  - 個別フィードページでのみトグルがヘッダーに描画され、受信箱・カテゴリ・ブックマーク等の他ビューでは描画されないことを確認する
+  - 結合テストが通り、トグルをクリックすると一覧が未読のみ表示に切り替わり、先頭から再読み込みされることが確認できる状態になる
+  - _Requirements: 1.1, 1.2, 1.5, 5.1, 5.2, 7.1, 7.2_
+  - _Depends: 5.1, 5.2_
+  - _Boundary: ArticleListPage_
+
+- [x] 5.4 スクロール中も表示位置が変わらないことを検証する
+  - 個別フィードページで記事一覧をスクロールしても、トグルがヘッダー内(常時表示領域)に表示され続けることを確認する
+  - フィード名の文字数が異なる複数のケースで、トグルの画面上の位置(ヘッダー右側の領域)が変わらないことを確認する
+  - フィードページとフォルダページを行き来しても、ヘッダーの内容が正しく切り替わることを確認する
+  - 結合テストがすべて通り、要件7のすべての受け入れ基準が満たされる状態になる
+  - _Requirements: 7.1, 7.2, 7.3_
+  - _Depends: 5.3_
+
 ## Implementation Notes
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22.
 - `feedAllReadEmpty`を追加した際、既存の`isEmpty && !allReadEmpty && !isLoading`ゲート(FeedErrorBanner/汎用の空メッセージ)も`!feedAllReadEmpty`を除外条件に加える必要があった。`allReadEmpty`同様、他の空状態フォールバックと二重表示しないよう、新しい空状態フラグを追加する際は既存の`isEmpty`系フォールバック条件も併せて見直すこと。
+- Task 5(要件7)は `folder-unread-only-toggle` の対応するヘッダー統合タスクの前提になる。`headerRight`(Task 5.1)と `ArticleListHandle` の命令的メソッド(Task 5.2)は、このスペックが新設・所有する共有の仕組みであり、`folder-unread-only-toggle` 側はこれらを複製せずそのまま再利用する設計になっている(design.md の Allowed Dependencies / Revalidation Triggers 参照)。
+- Task 5 実装時の学び:
+  - `ArticleListPage`(`src/app.tsx`)はこれまでファイル内非公開の関数だったが、ページレベルの結合テスト(`src/app.test.tsx`)から直接マウントできるよう `export` を追加した。動作は変更していない。
+  - design.md の File Structure Plan は `page-layout.test.tsx` の新設を挙げていたが、`PageLayout` は `useAppLayout()`(ルーターの outlet context)と `FeedList` に依存しており、単体でのモック構築コストの割に得られる検証が薄いと判断し、代わりに `src/app.test.tsx` で `ArticleListPage → PageLayout → Header` を実際にマウントする結合テストで `headerRight` の配線を検証した。`page-layout.test.tsx` は意図的に作成していない。
+  - `useFeedUnreadOnly` の呼び出し元が `ArticleList` から `ArticleListPage` に移ったため、フィード切り替え時の状態復元を検証していた `article-list.test.tsx` 内の記事一覧テストは、同等のシナリオを `app.test.tsx` 側の結合テストへ移設した(カバレッジの欠落なし)。
+  - `CategoryUnreadOnlyToggle`(フォルダ用トグル)は本タスクでは意図的に未変更のまま `article-list.tsx` に残置した。これを移動するのは `folder-unread-only-toggle` の対応タスクの責務。

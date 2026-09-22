@@ -50,6 +50,18 @@
 - **Findings**: `Locale = 'ja' | 'en' | 'zh'` で、既存エントリは例外なく3言語揃っている。また `articles.allRead` / `articles.showReadArticles` の文言は「未読のみ表示で対象が0件になった」状態全般に汎用的に使える内容だった。
 - **Implications**: 要件定義書を3言語対応に修正済み(design着手前に反映)。空状態の文言は新規キーを追加せず既存キーを再利用する。常時表示するトグル本体の文言(「すべて表示」/「未読のみ表示」に相当するラベル)は既存辞書に該当エントリが無いため新規に2キー追加する。
 
+### トグルがスクロールで隠れる問題(Issue #14)への対応
+
+- **Context**: 実装後、[Issue #14](https://github.com/okotaro/oksskolten/issues/14) で「記事一覧をスクロールすると未読/既読の表示切り替えが画面外に消える」という指摘を受けた。ユーザーは「フォルダ/フィードのタイトル行と同じ常時表示領域に移動してほしい。タイトル行のすぐ横だとタイトルの長さで位置がずれるので避けたい」と提案(コメントのスクリーンショットはヘッダー右上への配置を示す)。
+- **Sources Consulted**: `src/components/layout/header.tsx`(list モードの `sticky top-0 z-30` ヘッダーと右側の `w-8` スペーサー)、`src/components/layout/page-layout.tsx`、`src/app.tsx`(`ArticleListPage`)、`.claude/rules/frontend.md`(z-indexスケール)。
+- **Findings**:
+  - ヘッダーは `sticky top-0 z-30` で常時画面上部に固定されており、右側に幅合わせ用の空スペーサー(`<span className="w-8" />`)がある。ここがユーザーの提案する「常時表示領域」に一致する。
+  - `Header`/`PageLayout` と `ArticleList` は兄弟関係にあり、共通の親は `ArticleListPage`(`src/app.tsx`)である。トグルをヘッダー側で描画するには、状態管理とクリックハンドラを `ArticleList` から `ArticleListPage` へ引き上げる必要がある。
+  - `.claude/rules/frontend.md` は「フローティングUIのポータルは常に `<body>` を対象にする」と定めており、`Header` 内のDOM要素への直接ポータル(`createPortal`)はこの規約と整合しない。
+  - CSS `position: fixed` でヘッダー右上に重ねる案は、`.claude/rules/frontend.md` のz-indexスケール(`z-30 header`、`z-40` 以降はフローティングUI)に無い独自の中間値が必要になり、規約と整合しない。
+  - `ArticleList` は既に `ArticleListHandle`(`revalidate`)という命令的ハンドルの仕組みを持っており、親コンポーネントから子の内部処理を呼び出す前例が既にある。
+- **Implications**: 状態(`useFeedUnreadOnly`)とトグルのクリックハンドラを `ArticleListPage` に引き上げ、`PageLayout`/`Header` に新設する汎用スロット `headerRight` へ通常のReact子要素として渡す。ページング・スクロールのリセット(`setSize(1)` + `window.scrollTo(0, 0)`)は `ArticleList` 側に残し、新しい命令的メソッド `resetPagingAndScroll`(`ArticleListHandle` に追加)として公開する。この仕組みは `folder-unread-only-toggle` にも共通で使われるため、`feed-unread-only-toggle` が最初の導入者としてこれを所有する。
+
 ### デモモードへの影響
 - **Context**: `docs/spec/86_feature_bulk_mark_read.md` にある通り、デモモードはAPIをモックで横取りする構成のため、新機能が黙って壊れないか確認した。
 - **Sources Consulted**: `src/lib/demo/mock-api.ts`(113行)
@@ -86,6 +98,18 @@
 - **Rationale**: 表示切り替え機能はフィード活動情報の表示設定とは独立した関心事であり、常に利用可能であるべき。
 - **Trade-offs**: 独立した小コンポーネントが1つ増えるが、責務が明確になりテストしやすい。
 
+### Decision: トグルの状態・クリックハンドラを `ArticleListPage` に引き上げ、ヘッダーの汎用スロットへ描画する
+
+- **Context**: Issue #14。スクロールしても隠れない、かつタイトル文字数に位置が依存しない領域にトグルを表示する必要がある。ヘッダーはすでにその条件を満たす常時表示要素だが、`ArticleList` とは別コンポーネントである。
+- **Alternatives Considered**:
+  1. CSS `position: fixed` でヘッダー右上に重ねる — `.claude/rules/frontend.md` のz-indexスケールに合う値が無く却下
+  2. `document.body` 以外(`Header` 内のDOM要素)への `createPortal` — `.claude/rules/frontend.md` の「ポータルは常に `<body>` を対象にする」規約に反するため却下
+  3. トグルの状態・クリックハンドラを共通の親 `ArticleListPage` に引き上げ、`PageLayout`/`Header` に新設する `headerRight` prop へ通常の子要素として渡す
+- **Selected Approach**: 3を採用。`ArticleList` 側のページング・スクロールリセットは `resetPagingAndScroll` として `ArticleListHandle` 経由で公開し、`ArticleListPage` のクリックハンドラから呼び出す。
+- **Rationale**: 既存の規約(ポータルは `<body>` のみ、z-indexは定義済みスケールのみ)に違反せず、既存の `ArticleListHandle` パターンを拡張するだけで実現できる。フィード用・フォルダ用の両トグルが同じ仕組みを共有できる(`folder-unread-only-toggle` はこの仕組みを再利用する)。
+- **Trade-offs**: `ArticleList` の `unreadOnly` に関する一部の状態(`feedUnreadOnly`)の所有元が `ArticleList` から `ArticleListPage` に移る。`isPlainFeedView` 相当の判定を両コンポーネントで独立して行うことになる(既に `isInbox` 等の類似判定が両コンポーネントに重複している既存の前例に倣う)。
+- **Follow-up**: ルーティング構造が変わり `feedId` を持つルートが増えた場合、両コンポーネントの判定を同時に見直す必要がある(design.md の Revalidation Triggers 参照)。
+
 ### Decision: 空状態の文言は既存キーを再利用し、トグル本体の文言のみ新規追加
 - **Context**: brief.md時点では「既存の文言を流用せず新規キーを追加する」としていたが、実際の文言内容を確認した結果を反映する。
 - **Alternatives Considered**:
@@ -103,6 +127,7 @@
 
 ## References
 - [Issue #12](https://github.com/okotaro/oksskolten/issues/12) — 未読記事だけ表示
+- [Issue #14](https://github.com/okotaro/oksskolten/issues/14) — スクロールで隠れるトグルの表示位置修正
 - [brief.md](./brief.md) — Discovery段階での方針と代替案検討
 - [.kiro/specs/bulk-mark-read/design.md](../bulk-mark-read/design.md) — 記事一覧の絞り込み・アーキテクチャの既存パターン参照
 - [docs/spec/86_feature_bulk_mark_read.md](../../../docs/spec/86_feature_bulk_mark_read.md) — デモモード構成の既存ドキュメント

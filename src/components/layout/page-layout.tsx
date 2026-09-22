@@ -18,10 +18,12 @@ interface PageLayoutProps {
     onMarkAllRead?: () => void
     onArticleMoved?: () => void
   }
+  /** Content rendered in the header's fixed-position right slot (list mode only) */
+  headerRight?: ReactNode
   children: ReactNode
 }
 
-export function PageLayout({ mode = 'list', feedName, onBack, detailTitle, feedListProps, children }: PageLayoutProps) {
+export function PageLayout({ mode = 'list', feedName, onBack, detailTitle, feedListProps, headerRight, children }: PageLayoutProps) {
   const { sidebarOpen: drawerOpen, setSidebarOpen: setDrawerOpen } = useAppLayout()
 
   const [isScrolled, setIsScrolled] = useState(false)
@@ -51,7 +53,7 @@ export function PageLayout({ mode = 'list', feedName, onBack, detailTitle, feedL
         {mode === 'detail' ? (
           <Header mode="detail" onBack={onBack} detailTitle={detailTitle} isScrolled={isScrolled} sidebarOpen={drawerOpen} />
         ) : (
-          <Header mode="list" onMenuClick={() => setDrawerOpen(true)} feedName={feedName} isScrolled={isScrolled} sidebarOpen={drawerOpen} />
+          <Header mode="list" onMenuClick={() => setDrawerOpen(true)} feedName={feedName} isScrolled={isScrolled} sidebarOpen={drawerOpen} headerRight={headerRight} />
         )}
         <div ref={sentinelRef} className="h-0" />
         {children}

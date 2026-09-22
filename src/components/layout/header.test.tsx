@@ -49,4 +49,26 @@ describe('Header', () => {
     const header = document.querySelector('[data-header]')!
     expect(header.className).toContain('border-transparent')
   })
+
+  it('renders headerRight content in list mode', () => {
+    render(<Header mode="list" headerRight={<span>Unread only</span>} />)
+    expect(screen.getByText('Unread only')).toBeTruthy()
+  })
+
+  it('renders nothing extra in the right slot when headerRight is not provided', () => {
+    render(<Header mode="list" feedName="Tech News" />)
+    expect(screen.queryByText('Unread only')).toBeNull()
+  })
+
+  it('keeps the right slot position independent of the title length', () => {
+    const { container: short } = render(<Header mode="list" feedName="A" headerRight={<span>Unread only</span>} />)
+    const { container: long } = render(
+      <Header mode="list" feedName="A very long feed title that could otherwise push things around" headerRight={<span>Unread only</span>} />,
+    )
+    // The right slot is a sibling of the title's flex-1 container, not nested
+    // inside it, so its own box is unaffected by how long the title text is.
+    const shortSlot = short.querySelector('[data-header] > .min-w-8')!
+    const longSlot = long.querySelector('[data-header] > .min-w-8')!
+    expect(shortSlot.className).toBe(longSlot.className)
+  })
 })
