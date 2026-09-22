@@ -68,7 +68,42 @@
   - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.3, 5.1, 5.2_
   - _Depends: 3.1, 3.2_
 
+- [x] 5. ヘッダーへの表示位置移動(要件8、Issue #14)
+
+  本タスクは `feed-unread-only-toggle` の Task 5 が新設するヘッダーの汎用アクションスロットと `ArticleListHandle` の命令的メソッドをそのまま再利用する。`feed-unread-only-toggle` の Task 5.1・5.2 が完了している前提で着手すること(新しいスロットやメソッドをこちら側で複製しない)。
+
+- [x] 5.1 ArticleList: props経由のcategoryUnreadOnlyへの移行
+  - `ArticleList` が `useCategoryUnreadOnly` を直接呼び出すのをやめ、フォルダ単位の表示状態と変更コールバックを props として受け取るように変更する
+  - トグル自体の描画(JSX)を `ArticleList` から削除する(ヘッダー側で描画されるため)
+  - 空状態案内のボタンは、渡された変更コールバックで状態を戻したのち引き続き `setSize(1)` する
+  - 既存の受信箱・個別フィード・ブックマーク等のビューでの `unreadOnly` 算出・トグル非表示の挙動に回帰が無いことを確認する
+  - 単体テストが通り、`categoryUnreadOnly` の props 値に応じて一覧の取得リクエストが変わり、`ArticleList` 自身はトグルを描画しないことが確認できる状態になる
+  - _Requirements: 1.2, 1.3, 1.4, 2.1, 2.2, 6.1, 6.2_
+  - _Boundary: ArticleList_
+
+- [x] 5.2 ArticleListPage の配線: フォルダ用トグルを既存のヘッダースロットへ統合する
+  - ページコンポーネントでフォルダIDの有無からフォルダページかどうかを判定し、`useCategoryUnreadOnly` を呼び出す
+  - フォルダページのときトグル要素を生成し、既存のヘッダーアクションスロット(`feed-unread-only-toggle` が新設したもの)へ渡す
+  - トグルのクリックハンドラで状態を反転させたのち、`ArticleList` の既存の命令的メソッド(`feed-unread-only-toggle` が新設したもの)経由でページング・スクロールをリセットする
+  - `ArticleList` へは表示状態の値と変更コールバックを props として渡す
+  - フォルダページでのみトグルがヘッダーに描画され、受信箱・個別フィード・ブックマーク等の他ビューでは描画されないことを確認する
+  - フィードページとフォルダページを行き来しても、ヘッダーに描画される内容が正しく切り替わり、両方のトグルが同時に描画されないことを確認する
+  - 結合テストが通り、トグルをクリックすると一覧が未読のみ表示に切り替わり、先頭から再読み込みされることが確認できる状態になる
+  - _Requirements: 1.1, 1.2, 1.5, 6.1, 6.2, 8.1, 8.2_
+  - _Depends: 5.1_
+  - _Boundary: ArticleListPage_
+
+- [x] 5.3 スクロール中も表示位置が変わらないことを検証する
+  - フォルダページで記事一覧をスクロールしても、トグルがヘッダー内(常時表示領域)に表示され続けることを確認する
+  - フォルダ名の文字数が異なる複数のケースで、トグルの画面上の位置(ヘッダー右側の領域)が変わらないことを確認する
+  - 結合テストがすべて通り、要件8のすべての受け入れ基準が満たされる状態になる
+  - _Requirements: 8.1, 8.2, 8.3_
+  - _Depends: 5.2_
+
 ## Implementation Notes
 - Task 3.1 removed the old `allReadEmpty` (it depended on the deleted `showReadArticles`) and left the empty-state gate as `feedAllReadEmpty` alone. This is an intentional transitional state: a category unread-only view with 0 unread articles currently falls through to the generic `articles.empty` message instead of the "all caught up" guidance. Task 3.2 must add `categoryAllReadEmpty` back into that gate (`categoryAllReadEmpty || feedAllReadEmpty`) at all three usage sites (the guidance block itself, the `FeedErrorBanner` guard, and the generic-empty guard).
 - `mise` is not available in this sandbox, so `npm run test` (which wraps `mise exec node@22 -- vitest run`) fails at the wrapper level. Use `npx vitest run [path]` directly instead — same vitest config, already-active Node 22 (carried over from feed-unread-only-toggle's implementation notes).
 - ドキュメント更新(`docs/spec/`の新規ページ、`01_overview.md`、`87_feature_feed_unread_only.md`の記述修正、`README.md`)はタスク生成の対象外(Code-Only Focus)。design.mdのFile Structure Planに従い、実装完了後に`.claude/rules/docs.md`のルールに沿って別途反映すること(feed-unread-only-toggleの実装時と同じ運用)。
+- Task 5(要件8)は `feed-unread-only-toggle` の Task 5 に依存するクロススペック依存である。`headerRight` スロットと `ArticleListHandle` の命令的メソッドは `feed-unread-only-toggle` 側で実装されるため、`/kiro-impl folder-unread-only-toggle` の Task 5 を実行する前に `feed-unread-only-toggle` の Task 5 が完了していることを確認すること。
+- Task 5 実装時の学び: Requirement 4(レガシーのグローバル設定からの移行フォールバック)の結合テストは、`useCategoryUnreadOnly` の呼び出し元が `ArticleList` から `ArticleListPage` に移ったことに伴い、`article-list.test.tsx` から `app.test.tsx` へそのまま移設した(カバレッジの欠落なし)。フックの呼び出し元を変更する際は、その呼び出し元に依存していた結合テスト一式(ナビゲーション経由の状態復元・移行フォールバックの検証など)もセットで移設が必要になる点に注意。
+- `headerRight`/`resetPagingAndScroll` はいずれも再利用のみで、本タスクでの再定義・複製は無し(独立レビューで確認済み)。

@@ -10,13 +10,12 @@ import { trackRead } from '../../lib/readTracker'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
 import type { FeedUnreadOnlyState } from '../../hooks/use-feed-unread-only'
-import { useCategoryUnreadOnly } from '../../hooks/use-category-unread-only'
+import type { CategoryUnreadOnly } from '../../hooks/use-category-unread-only'
 import { useBulkMarkRead } from '../../hooks/use-bulk-mark-read'
 import { useAppLayout } from '../../app'
 import { ArticleCard, type ArticleDisplayConfig } from './article-card'
 import { ArticleContextMenu } from './article-context-menu'
 import { FeedMetricsBar } from '../feed/feed-metrics-bar'
-import { CategoryUnreadOnlyToggle } from './category-unread-only-toggle'
 import { SwipeableArticleCard } from './swipeable-article-card'
 import { articleUrlToPath } from '../../lib/url'
 import { ArticleOverlay } from './article-overlay'
@@ -59,9 +58,14 @@ interface ArticleListProps {
   feedUnreadOnly: FeedUnreadOnlyState
   /** Called when the empty-state guidance asks to switch back to "show all". */
   onFeedUnreadOnlyChange: (next: FeedUnreadOnlyState) => void
+  /** Current category (folder) unread-only display state. Ignored unless the
+   * current route is a category page. */
+  categoryUnreadOnly: CategoryUnreadOnly
+  /** Called when the empty-state guidance asks to switch back to "show all". */
+  onCategoryUnreadOnlyChange: (next: CategoryUnreadOnly) => void
 }
 
-export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(function ArticleList({ feedUnreadOnly, onFeedUnreadOnlyChange }, ref) {
+export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(function ArticleList({ feedUnreadOnly, onFeedUnreadOnlyChange, categoryUnreadOnly, onCategoryUnreadOnlyChange }, ref) {
   const location = useLocation()
   const navigate = useNavigate()
   const { feedId: feedIdParam, categoryId: categoryIdParam } = useParams<{ feedId?: string; categoryId?: string }>()
@@ -83,7 +87,6 @@ export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(funct
   const feedId = feedIdParam ? Number(feedIdParam) : (isClips && clipFeedId ? clipFeedId : undefined)
   const currentFeed = feedId && feedsData ? feedsData.feeds.find(f => f.id === feedId) : undefined
   const categoryId = categoryIdParam ? Number(categoryIdParam) : undefined
-  const [categoryUnreadOnly, setCategoryUnreadOnly] = useCategoryUnreadOnly(categoryId)
   const unreadOnly = isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')
   const bookmarkedOnly = isBookmarks
   const likedOnly = isLikes
@@ -493,17 +496,6 @@ export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(funct
         <FeedMetricsBar feed={currentFeed} />
       )}
 
-      {categoryId !== undefined && (
-        <CategoryUnreadOnlyToggle
-          unreadOnly={categoryUnreadOnly === 'on'}
-          onToggle={() => {
-            setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
-            void setSize(1)
-            window.scrollTo(0, 0)
-          }}
-        />
-      )}
-
       {isLoading && <ArticleListSkeleton layout={layout} showThumbnails={displayConfig.showThumbnails} />}
 
       {error && (
@@ -521,7 +513,7 @@ export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(funct
           <button
             onClick={() => {
               if (categoryAllReadEmpty) {
-                setCategoryUnreadOnly('off')
+                onCategoryUnreadOnlyChange('off')
                 void setSize(1)
               } else if (feedAllReadEmpty) {
                 onFeedUnreadOnlyChange('off')

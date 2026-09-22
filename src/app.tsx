@@ -13,6 +13,8 @@ import { Header } from './components/layout/header'
 import { ArticleList, type ArticleListHandle } from './components/article/article-list'
 import { FeedUnreadOnlyToggle } from './components/article/feed-unread-only-toggle'
 import { useFeedUnreadOnly } from './hooks/use-feed-unread-only'
+import { CategoryUnreadOnlyToggle } from './components/article/category-unread-only-toggle'
+import { useCategoryUnreadOnly } from './hooks/use-category-unread-only'
 import { ArticleDetail } from './components/article/article-detail'
 import { ArticleRawPage } from './components/article/article-raw-page'
 import { PageLayout } from './components/layout/page-layout'
@@ -160,12 +162,25 @@ export function ArticleListPage() {
   // param, so its presence alone identifies a plain feed page.
   const isPlainFeedView = Boolean(feedId)
   const [feedUnreadOnly, setFeedUnreadOnly] = useFeedUnreadOnly(isPlainFeedView ? Number(feedId) : undefined)
+  const categoryIdNum = categoryId ? Number(categoryId) : undefined
+  const [categoryUnreadOnly, setCategoryUnreadOnly] = useCategoryUnreadOnly(categoryIdNum)
 
+  // isPlainFeedView and categoryIdNum !== undefined are mutually exclusive:
+  // /feeds/:feedId and /categories/:categoryId are separate routes, so the
+  // header never needs to choose between the two toggles at once.
   const headerRight = isPlainFeedView ? (
     <FeedUnreadOnlyToggle
       unreadOnly={feedUnreadOnly === 'on'}
       onToggle={() => {
         setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
+        articleListRef.current?.resetPagingAndScroll()
+      }}
+    />
+  ) : categoryIdNum !== undefined ? (
+    <CategoryUnreadOnlyToggle
+      unreadOnly={categoryUnreadOnly === 'on'}
+      onToggle={() => {
+        setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
         articleListRef.current?.resetPagingAndScroll()
       }}
     />
@@ -182,7 +197,13 @@ export function ArticleListPage() {
       {isLikes && <HintBanner storageKey="hint-dismissed-likes">{t('hint.likes')}</HintBanner>}
       {isHistory && <HintBanner storageKey="hint-dismissed-history">{t('hint.history')}</HintBanner>}
       {isClips && <HintBanner storageKey="hint-dismissed-clips">{t('hint.clips')}</HintBanner>}
-      <ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={setFeedUnreadOnly} />
+      <ArticleList
+        ref={articleListRef}
+        feedUnreadOnly={feedUnreadOnly}
+        onFeedUnreadOnlyChange={setFeedUnreadOnly}
+        categoryUnreadOnly={categoryUnreadOnly}
+        onCategoryUnreadOnlyChange={setCategoryUnreadOnly}
+      />
     </PageLayout>
   )
 }

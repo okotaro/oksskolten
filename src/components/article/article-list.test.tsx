@@ -1,10 +1,10 @@
 import type { Ref } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { MemoryRouter, Routes, Route, Outlet, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
 import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
-import type { ArticleListItem, FeedWithCounts } from '../../../shared/types'
+import type { ArticleListItem, BulkReadScope, FeedWithCounts } from '../../../shared/types'
 
 // --- Mocks ---
 
@@ -129,6 +129,7 @@ import { ArticleList, type ArticleListHandle } from './article-list'
 import { useIsTouchDevice } from '../../hooks/use-is-touch-device'
 import { useClipFeedId } from '../../hooks/use-clip-feed-id'
 import type { FeedUnreadOnlyState } from '../../hooks/use-feed-unread-only'
+import type { CategoryUnreadOnly } from '../../hooks/use-category-unread-only'
 import { apiPost } from '../../lib/fetcher'
 
 const MENU_LABEL_ABOVE = 'Mark above (newer) as read'
@@ -191,77 +192,32 @@ function OutletWrapper() {
 interface ArticleListTestProps {
   feedUnreadOnly?: FeedUnreadOnlyState
   onFeedUnreadOnlyChange?: (next: FeedUnreadOnlyState) => void
+  categoryUnreadOnly?: CategoryUnreadOnly
+  onCategoryUnreadOnlyChange?: (next: CategoryUnreadOnly) => void
   articleListRef?: Ref<ArticleListHandle>
 }
 
 function renderArticleList(initialPath = '/inbox', props: ArticleListTestProps = {}) {
-  const { feedUnreadOnly = 'off', onFeedUnreadOnlyChange = vi.fn(), articleListRef } = props
+  const {
+    feedUnreadOnly = 'off',
+    onFeedUnreadOnlyChange = vi.fn(),
+    categoryUnreadOnly = 'off',
+    onCategoryUnreadOnlyChange = vi.fn(),
+    articleListRef,
+  } = props
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <LocaleContext.Provider value={{ locale: 'en', setLocale: vi.fn() }}>
         <Routes>
           <Route element={<OutletWrapper />}>
-            <Route path="feeds/:feedId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
-            <Route path="categories/:categoryId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
-            <Route path="*" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
+            <Route path="feeds/:feedId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} categoryUnreadOnly={categoryUnreadOnly} onCategoryUnreadOnlyChange={onCategoryUnreadOnlyChange} />} />
+            <Route path="categories/:categoryId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} categoryUnreadOnly={categoryUnreadOnly} onCategoryUnreadOnlyChange={onCategoryUnreadOnlyChange} />} />
+            <Route path="*" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} categoryUnreadOnly={categoryUnreadOnly} onCategoryUnreadOnlyChange={onCategoryUnreadOnlyChange} />} />
           </Route>
         </Routes>
       </LocaleContext.Provider>
     </MemoryRouter>,
   )
-}
-
-// --- Navigation helpers for feed-switch integration tests ---
-//
-// react-router keeps the layout route (OutletWrapper) and the matched child
-// route element (ArticleList) mounted across a navigation between sibling
-// routes that share the same path pattern (e.g. feeds/:feedId -> feeds/:feedId
-// with a different param). This mirrors production, where /feeds/:id has no
-// `key` prop and ArticleList never remounts on feed switches (see design.md's
-// "Existing Architecture Analysis"). `MemoryRouter`'s `initialEntries` only
-// seeds the history on first mount, so re-rendering with a new initial path
-// does NOT navigate an already-mounted router. Instead, a helper component
-// captures `useNavigate()` once and tests drive real navigation through it.
-let capturedNavigate: ((path: string) => void) | undefined
-
-function NavigationCapture() {
-  const navigate = useNavigate()
-  capturedNavigate = navigate
-  return null
-}
-
-function OutletWrapperWithNavCapture() {
-  return (
-    <KeyboardNavigationProvider>
-      <NavigationCapture />
-      <Outlet context={{ settings: mockSettings, sidebarOpen: false, setSidebarOpen: vi.fn() }} />
-    </KeyboardNavigationProvider>
-  )
-}
-
-function renderArticleListWithNav(initialPath = '/feeds/1', props: ArticleListTestProps = {}) {
-  const { feedUnreadOnly = 'off', onFeedUnreadOnlyChange = vi.fn(), articleListRef } = props
-  capturedNavigate = undefined
-  return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <LocaleContext.Provider value={{ locale: 'en', setLocale: vi.fn() }}>
-        <Routes>
-          <Route element={<OutletWrapperWithNavCapture />}>
-            <Route path="feeds/:feedId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
-            <Route path="categories/:categoryId" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
-            <Route path="*" element={<ArticleList ref={articleListRef} feedUnreadOnly={feedUnreadOnly} onFeedUnreadOnlyChange={onFeedUnreadOnlyChange} />} />
-          </Route>
-        </Routes>
-      </LocaleContext.Provider>
-    </MemoryRouter>,
-  )
-}
-
-/** Navigate the already-rendered tree to `path` using the captured navigate function. */
-function navigateTo(path: string) {
-  act(() => {
-    capturedNavigate!(path)
-  })
 }
 
 let scrollToSpy: ReturnType<typeof vi.spyOn>
@@ -641,37 +597,37 @@ describe('ArticleList', () => {
     await expectNoMenu('swipeable-1')
   })
 
-  const scopeCases = [
+  const scopeCases: Array<{ name: string; path: string; props: ArticleListTestProps; scope: BulkReadScope }> = [
     {
       name: 'inbox sends the unread-only filter as the bulk scope',
       path: '/inbox',
-      setup: () => {},
+      props: {},
       scope: { unread: true },
     },
     {
       name: 'feed view sends the feed id as the bulk scope',
       path: '/feeds/1',
-      setup: () => {},
+      props: {},
       scope: { feed_id: 1 },
     },
     {
       name: 'clip list sends the resolved clip feed id as the bulk scope',
       path: '/clips',
-      setup: () => { vi.mocked(useClipFeedId).mockReturnValue(7) },
+      props: {},
       scope: { feed_id: 7 },
     },
     {
       name: 'category view sends the category id and its unread-only setting as the bulk scope',
       path: '/categories/3',
-      setup: () => { localStorage.setItem('category-unread-only:3', 'on') },
+      props: { categoryUnreadOnly: 'on' },
       scope: { category_id: 3, unread: true },
     },
   ]
 
-  it.each(scopeCases)('$name', async ({ path, setup, scope }) => {
-    setup()
+  it.each(scopeCases)('$name', async ({ path, props, scope }) => {
+    if (path === '/clips') vi.mocked(useClipFeedId).mockReturnValue(7)
     setArticles([makeArticle({ id: 42, title: 'Anchor' })])
-    renderArticleList(path)
+    renderArticleList(path, props)
 
     await openCardMenu('article-42')
     fireEvent.click(screen.getByRole('menuitem', { name: MENU_LABEL_ABOVE }))
@@ -824,89 +780,43 @@ describe('ArticleList', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Category (folder) unread-only toggle
+  // Category (folder) unread-only toggle (folder pages only)
   //
-  // Unlike the feed toggle, useCategoryUnreadOnly is not mocked at the module
-  // level here: the real hook (real localStorage, cleared after every test by
-  // src/__tests__/setup.ts) is used throughout, since it has no dependencies
-  // that need stubbing and this keeps the per-category persistence genuinely
-  // under test rather than assumed.
+  // As of folder-unread-only-toggle Task 5 (Issue #14), the toggle itself is
+  // rendered in the header by ArticleListPage (see app.test.tsx), reusing the
+  // headerRight slot and resetPagingAndScroll mechanism feed-unread-only-toggle
+  // introduced. ArticleList's remaining responsibilities are: composing
+  // categoryUnreadOnly (now a prop, not a hook it calls itself) into
+  // unreadOnly, and the empty-state guidance's "show all" action. Navigation
+  // and legacy-migration coverage moved to app.test.tsx, where the real
+  // useCategoryUnreadOnly hook is exercised end to end.
   // ---------------------------------------------------------------------------
   describe('Category unread-only toggle (folder pages only)', () => {
-    it('renders the category unread-only toggle on a category page', () => {
+    it('does not render a category unread-only toggle itself (rendered by the header instead)', () => {
       setArticles([makeArticle({ id: 1 })])
-      renderArticleList('/categories/3')
-      expect(screen.getAllByText('Unread only').length).toBe(1)
+      renderArticleList('/categories/3', { categoryUnreadOnly: 'on' })
+      expect(screen.queryByText('Unread only')).toBeNull()
+      expect(screen.queryByText('Show all')).toBeNull()
     })
 
-    const noCategoryToggleViews = [
-      { name: 'the inbox', path: '/inbox' },
-      { name: 'a plain feed view', path: '/feeds/1' },
-      { name: 'the bookmarks view', path: '/bookmarks' },
-      { name: 'the likes view', path: '/likes' },
-      { name: 'the history view', path: '/history' },
-      { name: 'the clips view', path: '/clips' },
-    ]
-
-    it.each(noCategoryToggleViews)('does not render the category unread-only toggle on $name', ({ path }) => {
-      if (path === '/feeds/1') setFeed(1)
-      setArticles([makeArticle({ id: 1, feed_id: 1 })])
-      renderArticleList(path)
-      // The category toggle's label text is identical to the feed toggle's
-      // ("Unread only" / "Show all"). On a plain feed view the feed toggle
-      // itself renders that text once; the category toggle must never add a
-      // second instance. On every other non-category view, neither renders.
-      expect(screen.queryAllByText('Unread only').length).toBeLessThanOrEqual(1)
-      expect(screen.queryAllByText('Show all').length).toBe(0)
-    })
-
-    it('does not include unread=1 in the fetch key when the category toggle is off (default)', () => {
+    it('does not include unread=1 in the fetch key on a category page when categoryUnreadOnly is off', () => {
       setArticles([makeArticle({ id: 1 })])
-      renderArticleList('/categories/3')
+      renderArticleList('/categories/3', { categoryUnreadOnly: 'off' })
       expect(capturedGetKey).toBeDefined()
       const key = capturedGetKey!(0, null)
       expect(key).not.toContain('unread=1')
     })
 
-    it('includes unread=1 in the fetch key when a stored per-category preference is on', () => {
-      localStorage.setItem('category-unread-only:3', 'on')
+    it('includes unread=1 in the fetch key on a category page when categoryUnreadOnly is on', () => {
       setArticles([makeArticle({ id: 1 })])
-      renderArticleList('/categories/3')
+      renderArticleList('/categories/3', { categoryUnreadOnly: 'on' })
       expect(capturedGetKey).toBeDefined()
       const key = capturedGetKey!(0, null)
       expect(key).toContain('unread=1')
     })
 
-    it('flips to "unread only", persists it, and includes unread=1 in the fetch key when the toggle is clicked', () => {
-      setArticles([makeArticle({ id: 1 })])
-      renderArticleList('/categories/3')
-
-      fireEvent.click(screen.getByText('Unread only'))
-
-      expect(screen.getByText('Show all')).toBeTruthy()
-      expect(localStorage.getItem('category-unread-only:3')).toBe('on')
-      expect(capturedGetKey).toBeDefined()
-      expect(capturedGetKey!(0, null)).toContain('unread=1')
-    })
-
-    it('resets pagination when the category toggle is clicked', () => {
-      const mockSetSize = vi.fn()
-      setArticles([makeArticle({ id: 1 })])
-      swrInfiniteReturn.setSize = mockSetSize
-      renderArticleList('/categories/3')
-      fireEvent.click(screen.getByText('Unread only'))
-      expect(mockSetSize).toHaveBeenCalledWith(1)
-    })
-
-    it('scrolls to the top when the category toggle is clicked', () => {
-      setArticles([makeArticle({ id: 1 })])
-      renderArticleList('/categories/3')
-      fireEvent.click(screen.getByText('Unread only'))
-      expect(scrollToSpy).toHaveBeenCalledWith(0, 0)
-    })
-
     it('shows the reused empty-state guidance when the category unread-only view has no unread articles, and its button resets the toggle and pagination', () => {
-      localStorage.setItem('category-unread-only:3', 'on')
+      const onCategoryUnreadOnlyChange = vi.fn()
       const mockSetSize = vi.fn()
       swrInfiniteReturn = {
         data: [{ articles: [], total: 0, has_more: false, total_all: 5 }],
@@ -917,134 +827,14 @@ describe('ArticleList', () => {
         isValidating: false,
         mutate: vi.fn(),
       }
-      renderArticleList('/categories/3')
+      renderArticleList('/categories/3', { categoryUnreadOnly: 'on', onCategoryUnreadOnlyChange })
       expect(screen.getByText('All caught up!')).toBeTruthy()
       // The generic empty-list fallback must not render alongside this guidance.
       expect(screen.queryByText('No articles')).toBeNull()
 
       fireEvent.click(screen.getByText('Show read articles'))
-      expect(localStorage.getItem('category-unread-only:3')).toBe('off')
+      expect(onCategoryUnreadOnlyChange).toHaveBeenCalledWith('off')
       expect(mockSetSize).toHaveBeenCalledWith(1)
-    })
-
-    // -------------------------------------------------------------------------
-    // Category-switch integration: per-category unread-only state restoration
-    // (task 4). Mirrors "feed switching restores per-feed unread-only state
-    // (real hook + real navigation)" above. The unit tests in
-    // use-category-unread-only.test.ts already prove the hook re-derives
-    // correctly per categoryId in isolation (constructed fresh per test); these
-    // tests instead drive real react-router navigation across a single mounted
-    // ArticleList tree, since /categories/:categoryId has no `key` prop and
-    // ArticleList never remounts on folder switches (see design.md's "Existing
-    // Architecture Analysis" and its System Flows section) — the actual
-    // integration-level guarantee Requirements 5.1/5.2 describe.
-    // -------------------------------------------------------------------------
-    describe('category switching restores per-category unread-only state (real hook + real navigation)', () => {
-      beforeEach(() => {
-        setArticles([makeArticle({ id: 1 })])
-      })
-
-      it('does not leak an "on" state onto a category with no stored preference (the leak this feature was built to prevent)', () => {
-        renderArticleListWithNav('/categories/1')
-        fireEvent.click(screen.getByText('Unread only'))
-        expect(screen.getByText('Show all')).toBeTruthy()
-        expect(localStorage.getItem('category-unread-only:1')).toBe('on')
-
-        navigateTo('/categories/2')
-
-        // Category 2 has no stored preference: must show the default (off),
-        // not category 1's 'on' state carried over by a stale, un-rederived
-        // hook.
-        expect(screen.getByText('Unread only')).toBeTruthy()
-        expect(screen.queryByText('Show all')).toBeNull()
-      })
-
-      it('restores a stored "on" preference when navigating to a category that has one', () => {
-        localStorage.setItem('category-unread-only:2', 'on')
-        renderArticleListWithNav('/categories/1')
-        expect(screen.getByText('Unread only')).toBeTruthy()
-
-        navigateTo('/categories/2')
-
-        expect(screen.getByText('Show all')).toBeTruthy()
-      })
-
-      it('defaults to "off" (show all articles) for a category with no stored preference', () => {
-        renderArticleListWithNav('/categories/3')
-
-        expect(screen.getByText('Unread only')).toBeTruthy()
-        expect(screen.queryByText('Show all')).toBeNull()
-      })
-
-      it('restores each category\'s own state correctly across a three-way A -> B -> A navigation chain', () => {
-        renderArticleListWithNav('/categories/1')
-        fireEvent.click(screen.getByText('Unread only')) // Category 1: off -> on
-        expect(screen.getByText('Show all')).toBeTruthy()
-
-        navigateTo('/categories/2') // Category 2: no stored preference
-        expect(screen.getByText('Unread only')).toBeTruthy()
-        expect(screen.queryByText('Show all')).toBeNull()
-
-        navigateTo('/categories/1') // Back to category 1: must restore 'on', not category 2's 'off'
-        expect(screen.getByText('Show all')).toBeTruthy()
-        expect(screen.queryByText('Unread only')).toBeNull()
-      })
-    })
-
-    // -------------------------------------------------------------------------
-    // Migration fallback chain, end to end through ArticleList (task 4,
-    // Requirements 4.1 / 4.3 / 5.1 / 5.2).
-    //
-    // The existing tests above only ever set the per-category key directly;
-    // none of them set the legacy global key (`category-unread-only`, no
-    // suffix) and observe ArticleList itself pick it up as the initial state
-    // for a never-visited folder. This closes that gap, and additionally
-    // proves — through real navigation across several folders — that once a
-    // folder's state has been explicitly stored, later changes to the legacy
-    // key no longer affect it, while a still-untouched folder keeps tracking
-    // the legacy key's current value on each fresh visit.
-    // -------------------------------------------------------------------------
-    it('applies the legacy value as the initial state for an unvisited category, but a later legacy change only reaches categories that remain untouched', () => {
-      localStorage.setItem('category-unread-only', 'off')
-      renderArticleListWithNav('/categories/1')
-
-      // Category 1 has never been visited before: its initial state follows
-      // the legacy value ('off'), proving the migration fallback (4.1) works
-      // end to end through the real component, not just the hook in isolation.
-      expect(screen.getByText('Unread only')).toBeTruthy()
-
-      // Explicitly toggle category 1 on. This stores an explicit per-category
-      // value, which from now on must take priority over the legacy key (4.3).
-      fireEvent.click(screen.getByText('Unread only'))
-      expect(screen.getByText('Show all')).toBeTruthy()
-      expect(localStorage.getItem('category-unread-only:1')).toBe('on')
-
-      // The legacy key changes after category 1's explicit override.
-      localStorage.setItem('category-unread-only', 'on')
-
-      // Category 2 has never been touched: navigating to it for the first
-      // time must reflect the *current* legacy value ('on'), and must not
-      // inherit category 1's state (5.1/5.2).
-      navigateTo('/categories/2')
-      expect(screen.getByText('Show all')).toBeTruthy()
-
-      // The legacy key changes again, to the opposite value.
-      localStorage.setItem('category-unread-only', 'off')
-
-      // Category 3, also never touched, must pick up this newest legacy
-      // value fresh -- confirming an untouched category always tracks the
-      // legacy key's current value rather than a value cached at some
-      // earlier point.
-      navigateTo('/categories/3')
-      expect(screen.getByText('Unread only')).toBeTruthy()
-
-      // Navigating back to category 1 must still show its explicit 'on'
-      // override, even though the legacy key is now 'off' -- the opposite of
-      // what category 1 would show if it were still (incorrectly) falling
-      // back to the legacy value instead of its own stored preference.
-      navigateTo('/categories/1')
-      expect(screen.getByText('Show all')).toBeTruthy()
-      expect(localStorage.getItem('category-unread-only:1')).toBe('on')
     })
   })
 })

@@ -38,7 +38,12 @@ vi.mock('./components/feed/feed-list', () => ({
 }))
 
 const resetPagingAndScrollSpy = vi.fn()
-let capturedArticleListProps: { feedUnreadOnly: string; onFeedUnreadOnlyChange: (next: string) => void } | undefined
+let capturedArticleListProps: {
+  feedUnreadOnly: string
+  onFeedUnreadOnlyChange: (next: string) => void
+  categoryUnreadOnly: string
+  onCategoryUnreadOnlyChange: (next: string) => void
+} | undefined
 
 vi.mock('./components/article/article-list', () => ({
   ArticleList: forwardRef((props: any, ref: any) => {
@@ -125,6 +130,10 @@ function setFeed(id: number, name = 'My Feed') {
   swrFeedsData = { feeds: [{ id, name, type: 'rss', category_id: null, category_name: null }], clip_feed_id: null }
 }
 
+function setCategory(id: number, name = 'My Category') {
+  swrCategoriesData = { categories: [{ id, name }] }
+}
+
 describe('ArticleListPage header wiring (Issue #14)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -149,13 +158,15 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
 
   const noToggleViews = [
     { name: 'the inbox', path: '/inbox' },
-    { name: 'a category view', path: '/categories/3' },
     { name: 'the bookmarks view', path: '/bookmarks' },
     { name: 'the likes view', path: '/likes' },
     { name: 'the history view', path: '/history' },
     { name: 'the clips view', path: '/clips' },
   ]
 
+  // A category view is excluded from this list: it legitimately renders the
+  // *category* toggle (same "Unread only"/"Show all" label text), covered
+  // separately below. This only asserts views that render no toggle at all.
   it.each(noToggleViews)('does not render the feed unread-only toggle on $name', ({ path }) => {
     renderArticleListPage(path)
     expect(screen.queryByText('Unread only')).toBeNull()
@@ -219,5 +230,143 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
 
       expect(screen.getByText('Show all')).toBeTruthy()
     })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Category (folder) unread-only toggle wiring (folder-unread-only-toggle
+  // Task 5, Issue #14). Mirrors the feed toggle coverage above, but reuses the
+  // same headerRight slot and resetPagingAndScroll mechanism rather than
+  // introducing new ones (see design.md's Allowed Dependencies).
+  // ---------------------------------------------------------------------------
+  it('renders the category unread-only toggle in the header on a category page', () => {
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+    expect(screen.getByText('Unread only')).toBeTruthy()
+  })
+
+  const noCategoryToggleViews = [
+    { name: 'the inbox', path: '/inbox' },
+    { name: 'a plain feed view', path: '/feeds/1' },
+    { name: 'the bookmarks view', path: '/bookmarks' },
+    { name: 'the likes view', path: '/likes' },
+    { name: 'the history view', path: '/history' },
+    { name: 'the clips view', path: '/clips' },
+  ]
+
+  it.each(noCategoryToggleViews)('does not render the category unread-only toggle on $name', ({ path }) => {
+    if (path === '/feeds/1') setFeed(1)
+    renderArticleListPage(path)
+    // On a plain feed view the feed toggle renders this same text once; the
+    // category toggle must never add a second instance. Everywhere else,
+    // neither renders.
+    expect(screen.queryAllByText('Unread only').length).toBeLessThanOrEqual(1)
+    expect(screen.queryAllByText('Show all').length).toBe(0)
+  })
+
+  it('passes the current categoryUnreadOnly state down to ArticleList as a prop', () => {
+    localStorage.setItem('category-unread-only:3', 'on')
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+    expect(capturedArticleListProps?.categoryUnreadOnly).toBe('on')
+  })
+
+  it('flips the persisted category state and resets pagination/scroll on ArticleList when the toggle is clicked', () => {
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+
+    fireEvent.click(screen.getByText('Unread only'))
+
+    expect(localStorage.getItem('category-unread-only:3')).toBe('on')
+    expect(resetPagingAndScrollSpy).toHaveBeenCalledOnce()
+    expect(screen.getByText('Show all')).toBeTruthy()
+  })
+
+  it('shows only one toggle at a time when navigating between a feed page and a category page', () => {
+    setFeed(1)
+    setCategory(3)
+    renderArticleListPageWithNav('/feeds/1')
+    expect(screen.getAllByText('Unread only').length).toBe(1)
+
+    navigateTo('/categories/3')
+    expect(screen.getAllByText('Unread only').length).toBe(1)
+
+    navigateTo('/feeds/1')
+    expect(screen.getAllByText('Unread only').length).toBe(1)
+  })
+
+  describe('category switching restores per-category unread-only state (real navigation)', () => {
+    beforeEach(() => {
+      setCategory(1)
+    })
+
+    it('does not leak an "on" state onto a category with no stored preference', () => {
+      renderArticleListPageWithNav('/categories/1')
+      fireEvent.click(screen.getByText('Unread only'))
+      expect(screen.getByText('Show all')).toBeTruthy()
+
+      setCategory(2)
+      navigateTo('/categories/2')
+
+      expect(screen.getByText('Unread only')).toBeTruthy()
+      expect(screen.queryByText('Show all')).toBeNull()
+    })
+
+    it('restores a stored "on" preference when navigating to a category that has one', () => {
+      localStorage.setItem('category-unread-only:2', 'on')
+      renderArticleListPageWithNav('/categories/1')
+      expect(screen.getByText('Unread only')).toBeTruthy()
+
+      setCategory(2)
+      navigateTo('/categories/2')
+
+      expect(screen.getByText('Show all')).toBeTruthy()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Migration fallback chain, end to end through ArticleListPage (Requirements
+  // 4.1 / 4.3 / 5.1 / 5.2). Proves the legacy global "category unread-only"
+  // setting's leftover localStorage value seeds each never-visited category's
+  // initial state, and that an explicit per-category choice always wins once
+  // made, even as the legacy value keeps changing afterward.
+  // ---------------------------------------------------------------------------
+  it('applies the legacy value as the initial state for an unvisited category, but a later legacy change only reaches categories that remain untouched', () => {
+    localStorage.setItem('category-unread-only', 'off')
+    setCategory(1)
+    renderArticleListPageWithNav('/categories/1')
+
+    // Category 1 has never been visited before: its initial state follows
+    // the legacy value ('off').
+    expect(screen.getByText('Unread only')).toBeTruthy()
+
+    // Explicitly toggle category 1 on. From now on this takes priority over
+    // the legacy key for category 1.
+    fireEvent.click(screen.getByText('Unread only'))
+    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(localStorage.getItem('category-unread-only:1')).toBe('on')
+
+    // The legacy key changes after category 1's explicit override.
+    localStorage.setItem('category-unread-only', 'on')
+
+    // Category 2 has never been touched: it must reflect the *current*
+    // legacy value ('on'), not inherit category 1's state.
+    setCategory(2)
+    navigateTo('/categories/2')
+    expect(screen.getByText('Show all')).toBeTruthy()
+
+    // The legacy key flips again.
+    localStorage.setItem('category-unread-only', 'off')
+
+    // Category 3, also untouched, picks up this newest legacy value fresh.
+    setCategory(3)
+    navigateTo('/categories/3')
+    expect(screen.getByText('Unread only')).toBeTruthy()
+
+    // Category 1 still shows its explicit 'on' override, even though the
+    // legacy key is now 'off'.
+    setCategory(1)
+    navigateTo('/categories/1')
+    expect(screen.getByText('Show all')).toBeTruthy()
+    expect(localStorage.getItem('category-unread-only:1')).toBe('on')
   })
 })
