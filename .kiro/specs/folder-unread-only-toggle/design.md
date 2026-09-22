@@ -33,6 +33,8 @@
 - 表示状態切り替え時のページング(`useSWRInfinite` の `size`)リセットとスクロール位置のリセット
 - 未読が0件のときの案内表示と、そこから「すべて表示」に戻す導線
 - 既存のグローバル「カテゴリの未読のみ表示」設定(`reading.category_unread_only`)の撤去: Settings画面のUI、`use-settings.ts` の同期配線、サーバーのプリファレンスキー定義
+- `useCategoryUnreadOnly` の呼び出し元をページコンポーネント(`ArticleListPage`)に置くこと(要件8: 表示位置の永続的な可視性への対応)
+- `CategoryUnreadOnlyToggle` を、`feed-unread-only-toggle` が新設したヘッダーの右側アクションスロット(`headerRight`)へ描画すること
 
 ### Out of Boundary
 
@@ -41,15 +43,18 @@
 - `getArticles` / `GET /api/articles` のフィルタAPI自体の変更(既存の `unread` パラメータをそのまま利用)
 - 個別フィードの表示切り替え(`feed-unread-only-toggle`)の実装・記憶・復元・引き継ぎロジック
 - デモモードのAPIモック実装(`unread` パラメータを既に汎用的に処理しているため変更不要)
+- ヘッダーの `headerRight` スロット自体の新設、および `ArticleListHandle.resetPagingAndScroll` の新設(いずれも `feed-unread-only-toggle` が所有する。本機能はこれらを利用するのみ)
+- ヘッダー(`Header`/`PageLayout`)自体の一般的なレイアウト・背景・高さ・タイトルの省略表示規則
 
 ### Allowed Dependencies
 
 - クライアント: `src/components/article/article-list.tsx` の既存の `unreadOnly`/`getKey`/`useSWRInfinite` 構成、`src/lib/i18n.ts`、`src/hooks/use-feed-unread-only.ts` と同じローカルストレージ永続化パターン(直接の関数再利用はしない)、`src/hooks/use-scroll-restoration.ts` と同じ `window.scrollTo` によるスクロール制御
 - クライアント(移行フォールバックのみ): 旧グローバル設定が書き込んでいた `localStorage` キー `category-unread-only` を読み取り専用で参照する
+- クライアント: `src/app.tsx` の `ArticleListPage`、および `feed-unread-only-toggle` が導入する `PageLayout`/`Header` の `headerRight` prop と `ArticleListHandle.resetPagingAndScroll`(新設ではなく再利用。両方とも `feed-unread-only-toggle` の実装を前提とする)
 - サーバー: `GET /api/articles` の既存の `unread` クエリパラメータ(変更なしで利用のみ)
 - 共有: なし(新しい型はクライアント内に閉じる)
 
-依存の向き: `src/hooks/use-category-unread-only.ts` → `src/components/article/category-unread-only-toggle.tsx` → `src/components/article/article-list.tsx`。`ArticleList` から `useCategoryUnreadOnly` を直接呼び出し、`CategoryUnreadOnlyToggle` は表示専用としてコールバックのみを受け取る。この向きを逆流する import は許容しない。
+依存の向き: `src/hooks/use-category-unread-only.ts` → `src/components/article/category-unread-only-toggle.tsx` → `src/app.tsx`(`ArticleListPage`)。`ArticleListPage` から `useCategoryUnreadOnly` を直接呼び出し、`CategoryUnreadOnlyToggle` は表示専用としてコールバックのみを受け取る。`ArticleListPage` は `PageLayout` の `headerRight`(`feed-unread-only-toggle` が新設)にトグル要素を渡し、`ArticleList` には `categoryUnreadOnly` の値のみを props で渡す。この向きを逆流する import は許容しない。
 
 ### Revalidation Triggers
 
@@ -58,6 +63,7 @@
 - `useSWRInfinite` の `size` リセット規約が変わったとき
 - `articles.allRead` / `articles.showReadArticles` の文言が個別フィード専用の意味に変更されたとき。本機能での再利用が不適切になる
 - 何らかの理由でカテゴリ向けの「グローバルな未読のみ表示」相当の設定が再度追加提案されたとき。本機能が置き換えた経緯(`research.md` の Design Decisions 参照)を必ず参照し、二重の制御を再導入しない
+- `feed-unread-only-toggle` が所有する `Header`/`PageLayout` の `headerRight` プロパティ、または `ArticleListHandle.resetPagingAndScroll` のシグネチャ・挙動が変わったとき。本機能はこれらにそのまま依存しているため、変更時は本仕様側の配線も確認する
 
 ## Architecture
 
@@ -67,26 +73,30 @@
 
 `ArticleList` は既に `[feedId, categoryId]` の変化を検知する `useEffect`(現行415-421行)を持ち、`showReadArticles`・`noFloor`・`locallyReadIds`・キーボードフォーカスをフィード/カテゴリ切り替え時にリセットしている。ルート(`/categories/:categoryId`)に `key` propが無いため、フォルダ間の移動では `ArticleList` は再マウントされない。`feed-unread-only-toggle` はこの制約下でフィード単位の状態を安全に切り替えるため、`useEffect` で `feedId` の変化ごとに状態を再導出する専用フックを導入した。本機能は同じ制約・同じ解法をカテゴリに適用する。
 
+`feed-unread-only-toggle` は要件7対応として、トグルの状態管理・クリックハンドラをページコンポーネント `ArticleListPage` に置き、`PageLayout`/`Header` に新設した `headerRight` スロットへ描画する構成に変更されている(そのスポットは `ArticleList` とは兄弟関係にある常時表示のヘッダー行)。また `ArticleList` は `resetPagingAndScroll`(`setSize(1)` + `window.scrollTo(0, 0)`)を `ArticleListHandle` 経由で公開するようになっている。本機能(要件8)は同じ仕組みをカテゴリ用トグルにもそのまま適用し、新しいスロットやメソッドを追加で作らない。
+
 ### Architecture Pattern & Boundary Map
 
 ```mermaid
 graph TB
-    subgraph ArticleListComponent
-        ArticleList
+    subgraph ArticleListPageComponent
+        ArticleListPage
     end
-    ArticleList --> CategoryUnreadOnlyToggle
-    ArticleList --> UseCategoryUnreadOnly
+    ArticleListPage --> CategoryUnreadOnlyToggle
+    ArticleListPage --> UseCategoryUnreadOnly
     UseCategoryUnreadOnly --> BrowserStorage
     UseCategoryUnreadOnly --> LegacyGlobalStorage
+    ArticleListPage --> ArticleList
     ArticleList --> ArticlesApi
     ArticlesApi --> GetArticles
 ```
 
 **Architecture Integration**:
-- 選択パターン: `feed-unread-only-toggle` で確立済みの「ルートID変化時にローカル状態を再導出する `useEffect`」パターンを、既存ファイル `src/hooks/use-category-unread-only.ts` を書き換えたフックとして流用する
-- ドメイン境界: 永続化とフォルダ単位の値の再導出(および移行フォールバック)は `useCategoryUnreadOnly` が所有し、表示とクリックイベントは `CategoryUnreadOnlyToggle` が所有する。`ArticleList` は両者を配線し、既存の `unreadOnly`/`getKey`/`size` と接続する責務のみを持つ
+- 選択パターン: `feed-unread-only-toggle` で確立済みの「ルートID変化時にローカル状態を再導出する `useEffect`」パターンを、既存ファイル `src/hooks/use-category-unread-only.ts` を書き換えたフックとして流用する。呼び出し元は `feed-unread-only-toggle` と同じくページコンポーネント `ArticleListPage`
+- ドメイン境界: 永続化とフォルダ単位の値の再導出(および移行フォールバック)は `useCategoryUnreadOnly` が所有し、表示とクリックイベントは `CategoryUnreadOnlyToggle` が所有する。`ArticleListPage` は両者を配線し、`headerRight` へ描画するとともに `ArticleList` へ `categoryUnreadOnly` の値を渡して既存の `unreadOnly`/`getKey`/`size` と接続する
 - 既存パターンの維持: `unreadOnly` の算出方法(合成のみ変更)、`getKey` によるクエリパラメータ生成、`useSWRInfinite` の利用方法は変更しない
 - 撤去: `settings.categoryUnreadOnly`/`showReadArticles` の一時的な仕組みは完全に削除し、`feedUnreadOnly` と対称な `categoryUnreadOnly`(フォルダ単位・永続)に置き換える
+- ヘッダースロット・命令的メソッドの再利用: `headerRight` と `resetPagingAndScroll` は `feed-unread-only-toggle` が新設した既存の仕組みをそのまま使い、本機能側で複製・再定義しない(`research.md` 参照)
 
 ### Technology Stack
 
@@ -108,8 +118,9 @@ src/
 │   └── article/
 │       ├── category-unread-only-toggle.tsx       # New: presentational toggle control
 │       ├── category-unread-only-toggle.test.tsx  # New: component tests
-│       ├── article-list.tsx                       # Modified: wire toggle, unreadOnly, pagination reset, drop showReadArticles
+│       ├── article-list.tsx                       # Modified: categoryUnreadOnly from props, drop showReadArticles
 │       └── article-list.test.tsx                  # Modified: replace global-setting test setup with per-category localStorage setup
+├── app.tsx                                # Modified: ArticleListPage owns useCategoryUnreadOnly, wires toggle into existing headerRight slot
 ├── pages/settings/sections/
 │   └── reading-section.tsx                # Modified: remove the "カテゴリの未読のみ表示" control
 └── lib/
@@ -125,9 +136,12 @@ docs/
 README.md                                  # Modified: add a one-line feature bullet
 ```
 
+> `src/components/layout/header.tsx` / `page-layout.tsx` は本機能では変更しない。両ファイルの `headerRight` prop は `feed-unread-only-toggle` が新設・所有するものを、本機能はそのまま再利用する(Out of Boundary / Allowed Dependencies 参照)。
+
 ### Modified Files
 - `src/hooks/use-category-unread-only.ts` — Full rewrite: replaces the global `createLocalStorageHook`-based `useCategoryUnreadOnly()` (no args, returns `{categoryUnreadOnly, setCategoryUnreadOnly}`) with a per-category hook `useCategoryUnreadOnly(categoryId)` returning a tuple, mirroring `use-feed-unread-only.ts`'s shape and adding the legacy-value fallback (see Components below).
-- `src/components/article/article-list.tsx` — Removes `showReadArticles` state and the global `categoryUnreadOnly` derivation from `settings`. Calls `useCategoryUnreadOnly(categoryId)` directly. Extends `unreadOnly` to `isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')`. Renders `CategoryUnreadOnlyToggle` when `categoryId !== undefined`. Replaces `allReadEmpty` (which depended on `showReadArticles`) with `categoryAllReadEmpty` computed the same way as the existing `feedAllReadEmpty`, and its action calls `setCategoryUnreadOnly('off')` + `setSize(1)` instead of `setShowReadArticles(true)`. The toggle's click handler mirrors the feed toggle: flip state, `setSize(1)`, `window.scrollTo(0, 0)`.
+- `src/app.tsx`(`ArticleListPage`) — Calls `useCategoryUnreadOnly(categoryId)`. When `categoryId !== undefined`, builds a `CategoryUnreadOnlyToggle` element and passes it into `PageLayout`'s existing `headerRight` prop (introduced by `feed-unread-only-toggle`; mutually exclusive with the feed toggle since a route never has both `feedId` and `categoryId`). The toggle's click handler flips state then calls `articleListRef.current?.resetPagingAndScroll()` (the existing imperative method). Passes `categoryUnreadOnly` and an `onCategoryUnreadOnlyChange` callback down to `ArticleList` as props.
+- `src/components/article/article-list.tsx` — Removes `showReadArticles` state and the global `categoryUnreadOnly` derivation from `settings`. Receives `categoryUnreadOnly`/`onCategoryUnreadOnlyChange` as props instead of calling `useCategoryUnreadOnly` directly. Extends `unreadOnly` to `isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')`. Does not render `CategoryUnreadOnlyToggle` itself (rendered in the header by `ArticleListPage`). Replaces `allReadEmpty` (which depended on `showReadArticles`) with `categoryAllReadEmpty` computed the same way as the existing `feedAllReadEmpty`, and its action calls `onCategoryUnreadOnlyChange('off')` + `setSize(1)` instead of `setShowReadArticles(true)`.
 - `src/hooks/use-settings.ts` — Removes the `'reading.category_unread_only'` entry from `Prefs`, the `useCategoryUnreadOnly()` call and its ref/hydration/factory-setter wiring, and `categoryUnreadOnly`/`setCategoryUnreadOnly` from the returned object.
 - `src/pages/settings/sections/reading-section.tsx` — Removes the "カテゴリの未読のみ表示" `RadioGroup` block and its destructured props.
 - `server/routes/settings.ts` — Removes `'reading.category_unread_only'` from `PREF_KEYS` and `PREF_ALLOWED` (companion change required by `.claude/rules/settings-sync.md`).
@@ -144,13 +158,14 @@ README.md                                  # Modified: add a one-line feature bu
 sequenceDiagram
     participant User
     participant Toggle as CategoryUnreadOnlyToggle
-    participant List as ArticleList
+    participant Page as ArticleListPage
     participant Hook as UseCategoryUnreadOnly
     participant Storage as BrowserStorage
     participant Legacy as LegacyGlobalStorage
+    participant List as ArticleList
     participant Swr as UseSWRInfinite
 
-    List->>Hook: read state for categoryId
+    Page->>Hook: read state for categoryId
     Hook->>Storage: get category-unread-only:categoryId
     alt per-category value stored
         Storage-->>Hook: on or off
@@ -158,13 +173,15 @@ sequenceDiagram
         Hook->>Legacy: get category-unread-only
         Legacy-->>Hook: on or off (default off if absent)
     end
-    Hook-->>List: initial state
+    Hook-->>Page: initial state
 
-    User->>Toggle: click
-    Toggle->>List: onToggle
-    List->>Hook: setCategoryUnreadOnly next
+    User->>Toggle: click (rendered in Header via headerRight)
+    Toggle->>Page: onToggle
+    Page->>Hook: setCategoryUnreadOnly next
     Hook->>Storage: write category-unread-only:categoryId
-    Hook-->>List: updated state
+    Hook-->>Page: updated state
+    Page->>List: categoryUnreadOnly prop updates
+    Page->>List: articleListRef.resetPagingAndScroll()
     List->>Swr: setSize 1
     List->>List: window scrollTo top
     List->>Swr: getKey recomputed with unread flag
@@ -190,8 +207,11 @@ sequenceDiagram
 | 4.2 | Settings画面からグローバル切り替えを撤去 | reading-section.tsx, use-settings.ts, server/routes/settings.ts | — | — |
 | 4.3 | 記憶後はレガシー設定を参照しない | UseCategoryUnreadOnly | `readStored` の優先順位(カテゴリ別値が最優先) | 初期読み込みシーケンス |
 | 5.1-5.2 | フォルダ間切り替えでの状態の非引き継ぎ | UseCategoryUnreadOnly | `categoryId` 変化時の再導出 `useEffect` | — |
-| 6.1-6.2 | 切り替え時の先頭からの再読み込み | ArticleList | `setSize(1)`, `window.scrollTo(0, 0)` | トグル切り替えシーケンス |
+| 6.1-6.2 | 切り替え時の先頭からの再読み込み | ArticleListPage, ArticleList | `ArticleListHandle.resetPagingAndScroll`(`feed-unread-only-toggle` 由来、再利用) | トグル切り替えシーケンス |
 | 7.1 | 文言の多言語提供 | i18n dictionary | `category.unreadOnlyToggle.*`、既存 `articles.allRead`/`articles.showReadArticles` | — |
+| 8.1 | スクロール中もトグルを表示し続ける | Header, PageLayout(`feed-unread-only-toggle` が新設、本機能は再利用) | `headerRight` prop | — |
+| 8.2 | フォルダ名と同じ常時表示領域に配置する | Header, PageLayout, ArticleListPage | `headerRight` prop | トグル切り替えシーケンス |
+| 8.3 | フォルダ名の文字数でトグルの位置が変わらない | Header | 右側スロットの固定配置(`headerRight` はタイトルの `flex-1` 領域と独立) | — |
 
 ## Components and Interfaces
 
@@ -199,7 +219,8 @@ sequenceDiagram
 |-----------|--------------|--------|---------------|---------------------------|-----------|
 | useCategoryUnreadOnly | Client State | カテゴリIDごとの表示状態を保持・永続化し、未記憶時はレガシー設定値へフォールバックする | 3.1-3.3, 4.1, 4.3, 5.1-5.2 | BrowserStorage (P0) | State |
 | CategoryUnreadOnlyToggle | UI | トグルの表示とクリックイベントの通知 | 1.1, 1.5, 7.1 | useCategoryUnreadOnly の戻り値 (P0) | State |
-| ArticleList(変更箇所) | UI / Integration | フォルダ判定、`unreadOnly` 合成、ページング・スクロールのリセット、空状態の置き換え | 1.1-1.4, 2.1-2.2, 6.1-6.2 | useCategoryUnreadOnly (P0), CategoryUnreadOnlyToggle (P0), useSWRInfinite (P0) | State |
+| ArticleListPage(変更箇所) | UI / Integration | `useCategoryUnreadOnly` の呼び出し、`CategoryUnreadOnlyToggle` の生成、既存 `headerRight` への配線、トグル操作時の `resetPagingAndScroll` 呼び出し | 1.1, 1.5, 6.1-6.2, 8.1-8.3 | useCategoryUnreadOnly (P0), CategoryUnreadOnlyToggle (P0), PageLayout の headerRight (P0, feed-unread-only-toggle 由来), ArticleListHandle (P0, feed-unread-only-toggle 由来) | State |
+| ArticleList(変更箇所) | UI / Integration | フォルダ判定、`unreadOnly` 合成、空状態の置き換え | 1.1-1.4, 2.1-2.2, 6.1-6.2 | CategoryUnreadOnly prop (P0), useSWRInfinite (P0) | State |
 | Settings撤去(reading-section.tsx / use-settings.ts / server settings.ts) | UI / Integration | 既存グローバル設定のUI・同期・サーバー側許可値を撤去する | 4.2 | — | — |
 
 ### Client State
@@ -240,7 +261,7 @@ export function useCategoryUnreadOnly(
 - Concurrency strategy: 単一タブ内のReact状態のみを信頼源とする。他タブでの変更検知は行わない(`use-feed-unread-only.ts` と同様)
 
 **Implementation Notes**
-- Integration: `ArticleList` から `categoryId`(フォルダページのときのみ、それ以外は `undefined`)を渡して利用する
+- Integration: `ArticleListPage` から `categoryId`(フォルダページのときのみ、それ以外は `undefined`)を渡して利用する
 - Validation: 不正な保存値は「未保存」と同様に扱い、レガシーフォールバックへ進む
 - Risks: `localStorage` が利用不可な場合の挙動は既存パターンと同じ(アプリ全体で統一されており、本機能だけの特別対応はしない)。レガシーキーは今後誰も書き込まなくなるため、フォールバック値はこの変更のデプロイ時点の値に固定される(意図した挙動、`research.md` 参照)
 
@@ -265,39 +286,65 @@ interface CategoryUnreadOnlyToggleProps {
 ```
 
 **Implementation Notes**
-- Integration: `ArticleList` がフォルダページ判定(`categoryId !== undefined`)のときのみ描画する
+- Integration: `ArticleListPage` がフォルダページ判定(`categoryId !== undefined`)のときのみ生成し、`PageLayout` の既存 `headerRight`(`feed-unread-only-toggle` 由来)に渡す
 - Validation: 該当なし(表示専用)
 - Risks: 該当なし
 
 ### Integration
 
-#### ArticleList(変更箇所)
+#### ArticleListPage(変更箇所)
 
 | Field | Detail |
 |-------|--------|
-| Intent | フォルダ判定、`useCategoryUnreadOnly` と `CategoryUnreadOnlyToggle` の配線、`unreadOnly` への合成、切り替え時のページング・スクロールのリセット、空状態表示の置き換え |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 6.1, 6.2 |
+| Intent | フォルダ判定、`useCategoryUnreadOnly` と `CategoryUnreadOnlyToggle` の配線、既存 `headerRight` への描画、トグル操作時の状態更新と `ArticleList` のページング・スクロールリセットの発火 |
+| Requirements | 1.1, 1.5, 6.1, 6.2, 8.1-8.3 |
 
 **Responsibilities & Constraints**
-- `useCategoryUnreadOnly(categoryId)` を呼び出し、`categoryId !== undefined` のときのみ `CategoryUnreadOnlyToggle` を描画する
-- `unreadOnly` の算出を `isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')` に変更する(既存の `categoryUnreadOnly && !showReadArticles` 由来の項を置き換える)
-- トグルのクリックハンドラは、状態の反転・`setSize(1)`・`window.scrollTo(0, 0)` を1つの関数内で行う(`feed-unread-only-toggle` と同型)
-- `showReadArticles` state を削除し、既存の `allReadEmpty` を `categoryAllReadEmpty = isEmpty && categoryId !== undefined && categoryUnreadOnly === 'on' && totalAll != null && totalAll > 0` に置き換える(`feedAllReadEmpty` と対称)。空状態のレンダリング条件を `categoryAllReadEmpty || feedAllReadEmpty` に変更する。案内のボタンは `categoryAllReadEmpty` のときは `setCategoryUnreadOnly('off')` と `setSize(1)` を呼ぶ
-- フィード/カテゴリ変更時のリセット `useEffect`(現行415-421行)から `setShowReadArticles(false)` を削除する(状態自体を削除するため)
+- `categoryId !== undefined` のとき `useCategoryUnreadOnly(categoryId)` を呼び出し、`CategoryUnreadOnlyToggle` を生成して `PageLayout` の `headerRight` に渡す(`feed-unread-only-toggle` が同じ prop にフィード用トグルを渡すが、`categoryId` と `feedId` はルーティング上排他的なため競合しない)
+- トグルのクリックハンドラは、状態の反転(`setCategoryUnreadOnly`)ののち `articleListRef.current?.resetPagingAndScroll()`(`feed-unread-only-toggle` が導入した既存メソッド)を呼ぶ。本機能はこのメソッドを再利用するのみで、新設・複製はしない
+- `ArticleList` へは `categoryUnreadOnly` の値と `onCategoryUnreadOnlyChange`(空状態導線用)を props として渡す
 
 **Dependencies**
-- Inbound: なし(ページコンポーネントから描画される既存のリーフコンポーネント)
-- Outbound: `useCategoryUnreadOnly` (P0), `CategoryUnreadOnlyToggle` (P0), `useSWRInfinite` の `setSize` (P0)
+- Inbound: なし(ルートに直接マッピングされるページコンポーネント)
+- Outbound: `useCategoryUnreadOnly` (P0), `CategoryUnreadOnlyToggle` (P0), `PageLayout` の `headerRight` (P0, feed-unread-only-toggle 由来), `ArticleListHandle.resetPagingAndScroll` (P0, feed-unread-only-toggle 由来)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
 ##### State Management
-- State model: 既存の `unreadOnly`・`noFloor` と同列に `categoryUnreadOnly`(`useCategoryUnreadOnly` の戻り値)を扱う。`showReadArticles` は廃止する
+- State model: `categoryUnreadOnly`(`useCategoryUnreadOnly` の戻り値)をページコンポーネントの状態として保持する
 - Persistence & consistency: 永続化は `useCategoryUnreadOnly` に委譲する
+- Concurrency strategy: 該当なし(単一コンポーネント内の同期的な状態更新)
+
+**Implementation Notes**
+- Integration: `feed-unread-only-toggle` も同じ `ArticleListPage` にフィード用の配線を持つ。`categoryId !== undefined` と `isPlainFeedView` は現在のルーティング上、同時にtrueにならない(カテゴリページとフィードページは別ルート)ため、`headerRight` の内容が競合することはない
+- Validation: 該当なし
+- Risks: 該当なし
+
+#### ArticleList(変更箇所)
+
+| Field | Detail |
+|-------|--------|
+| Intent | フォルダ判定、`unreadOnly` への合成、空状態表示の置き換え |
+| Requirements | 1.2, 1.3, 1.4, 2.1, 2.2, 6.1, 6.2 |
+
+**Responsibilities & Constraints**
+- `categoryUnreadOnly`(props)を受け取り、`unreadOnly` の算出を `isInbox || (categoryId !== undefined && categoryUnreadOnly === 'on') || (isPlainFeedView && feedUnreadOnly === 'on')` に変更する(既存の `categoryUnreadOnly && !showReadArticles` 由来の項を置き換える)
+- `showReadArticles` state を削除し、既存の `allReadEmpty` を `categoryAllReadEmpty = isEmpty && categoryId !== undefined && categoryUnreadOnly === 'on' && totalAll != null && totalAll > 0` に置き換える(`feedAllReadEmpty` と対称)。空状態のレンダリング条件を `categoryAllReadEmpty || feedAllReadEmpty` に変更する。案内のボタンは `categoryAllReadEmpty` のときは `onCategoryUnreadOnlyChange('off')` を呼んだのち `setSize(1)` する
+- フィード/カテゴリ変更時のリセット `useEffect`(現行415-421行)から `setShowReadArticles(false)` を削除する(状態自体を削除するため)
+
+**Dependencies**
+- Inbound: `ArticleListPage`(`categoryUnreadOnly`/`onCategoryUnreadOnlyChange` props)
+- Outbound: `useSWRInfinite` の `setSize` (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+- State model: `categoryUnreadOnly` は props 由来の値として扱う(このコンポーネントは所有しない)。`showReadArticles` は廃止する
+- Persistence & consistency: 永続化は `useCategoryUnreadOnly`(呼び出し元は `ArticleListPage`)に委譲する
 - Concurrency strategy: 既存の `useSWRInfinite` の再検証・重複リクエスト制御をそのまま利用する
 
 **Implementation Notes**
-- Integration: `categoryId` と `isPlainFeedView` は現在のルーティング上、同時にtrueにならない(カテゴリページとフィードページは別ルート)。両トグルが同時に描画されることはない
+- Integration: トグル自体の描画は行わない(ヘッダー側で `ArticleListPage` が描画する)。`categoryId` と `isPlainFeedView` は現在のルーティング上、同時にtrueにならない(カテゴリページとフィードページは別ルート)。両トグルが同時に描画されることはない
 - Validation: 該当なし
 - Risks: `categoryAllReadEmpty` と `feedAllReadEmpty` が同時にtrueになるケースが無いことを実装時に確認する(既存の `allReadEmpty`/`feedAllReadEmpty` の相互排他性コメントと同じ根拠)
 
@@ -356,10 +403,14 @@ interface CategoryUnreadOnlyToggleProps {
 - `CategoryUnreadOnlyToggle`: クリックで `onToggle` が呼ばれる
 
 ### Integration Tests(`article-list.test.tsx`)
-- フォルダページ(`categoryId` あり)でのみトグルが描画される
-- 受信箱・個別フィード・ブックマーク・お気に入り・既読済み・クリップの各ビューではトグルが描画されない
-- トグルをONにすると `getKey` が生成するリクエストに `unread=1` が含まれる
-- トグルの切り替え操作で `setSize(1)` が呼ばれる
-- 未読のみ表示で対象フォルダの未読が0件のとき、案内表示(既存の `articles.allRead`/`articles.showReadArticles` 文言)が出て、クリックで `'off'` に戻り一覧が再読み込みされる
-- 別フォルダへ遷移したとき、遷移先フォルダの記憶済み表示状態(または初期状態)が反映され、遷移元の状態を引き継がない
+- `categoryUnreadOnly` prop が `'on'` のとき `getKey` が生成するリクエストに `unread=1` が含まれる
+- 未読のみ表示で対象フォルダの未読が0件のとき、案内表示(既存の `articles.allRead`/`articles.showReadArticles` 文言)が出て、クリックで `onCategoryUnreadOnlyChange('off')` が呼ばれ一覧が再読み込みされる
+- `ArticleList` はトグル自体を描画しない(ヘッダー側の責務であることの回帰防止)
 - 既存テストのグローバル設定モック(`mockSettings.categoryUnreadOnly`)を、`localStorage` ベースの per-category セットアップに置き換える(旧グローバル設定の削除に伴う既存テストの更新)
+
+### Integration Tests(`app.test.tsx` などページレベル)
+- フォルダページ(`categoryId` あり)でのみ `CategoryUnreadOnlyToggle` が既存の `headerRight` 経由で描画される
+- 受信箱・個別フィード・ブックマーク・お気に入り・既読済み・クリップの各ビューではフォルダ用トグルが描画されない
+- トグルをクリックすると `categoryUnreadOnly` が反転し、`ArticleListHandle.resetPagingAndScroll` が呼ばれる(`feed-unread-only-toggle` が導入した既存メソッドを再利用していることの確認であり、新しいメソッドを追加しない)
+- 別フォルダへ遷移したとき、遷移先フォルダの記憶済み表示状態(または初期状態)が反映され、遷移元の状態を引き継がない
+- フィードページとフォルダページを行き来しても、`headerRight` に描画される内容が正しく切り替わり、両方のトグルが同時に描画されることはない
