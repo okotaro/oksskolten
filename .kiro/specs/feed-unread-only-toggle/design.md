@@ -14,6 +14,7 @@
 - 切り替えた表示状態をフィードごとに記憶し、同じフィードを再訪したときに復元する
 - フィード間を移動しても前のフィードの表示状態を誤って引き継がない
 - 切り替え時に一覧の先頭から再読み込みする
+- 表示切り替えの操作を見ただけで、現在のモードと切り替え後のモードをひと目で判別できるようにする(要件8)
 
 ### Non-Goals
 
@@ -34,6 +35,7 @@
 - `useFeedUnreadOnly` の呼び出し元をページコンポーネント(`ArticleListPage`)に置くこと(要件7: 表示位置の永続的な可視性への対応)
 - ヘッダー(`Header`/`PageLayout`)に汎用の右側アクションスロット(`headerRight`)を新設すること。このスロット自体は本機能が最初に導入する共有の仕組みであり、フィード用トグルはこのスロットに描画される
 - `ArticleList` の `unreadOnly` リセット処理(ページング・スクロール)を、外部から呼び出せる命令的メソッド(`resetPagingAndScroll`)として `ArticleListHandle` に切り出すこと
+- 汎用の2択トグルスイッチ `UnreadOnlyToggleSwitch`(`src/components/ui/`)の新設。本機能が最初に導入する共有UIプリミティブであり、`FeedUnreadOnlyToggle` はこれを利用して描画する。フォルダ用トグル(`folder-unread-only-toggle`)もこのプリミティブを再利用する(要件8)
 
 ### Out of Boundary
 
@@ -44,15 +46,18 @@
 - デモモードのAPIモック実装(`unread` パラメータを既に汎用的に処理しているため変更不要)
 - ヘッダー(`Header`/`PageLayout`)自体の一般的なレイアウト・背景・高さ・タイトルの省略表示規則(既存の実装のまま。本機能は右側アクションスロットの追加のみを行う)
 - `headerRight` スロットや `resetPagingAndScroll` を、フォルダ用トグル(`folder-unread-only-toggle`)がどう利用するか(呼び出し側であるフォルダ機能の責務)
+- `UnreadOnlyToggleSwitch` の配色・アイコン意匠そのものの独自デザイン化。既存の `Button`(`src/components/ui/button.tsx`)と同じテーマトークンのみを使い、新しい配色トークンは追加しない(要件8.4、Issue添付イメージのビジュアルスタイルは採用しない)
+- `folder-unread-only-toggle` が `CategoryUnreadOnlyToggle` から `UnreadOnlyToggleSwitch` をどう利用するか(呼び出し側であるフォルダ機能の責務)
 
 ### Allowed Dependencies
 
 - クライアント: `src/components/article/article-list.tsx` の既存の `unreadOnly`/`getKey`/`useSWRInfinite` 構成、`src/lib/i18n.ts`、`src/hooks/use-category-unread-only.ts` と同様のローカルストレージ永続化パターン(ただし直接の関数再利用はしない)、`src/hooks/use-scroll-restoration.ts` と同じ `window.scrollTo` によるスクロール制御
+- クライアント: `src/components/ui/button.tsx` の `cva` ベースのバリアント定義パターン、および `.claude/rules/frontend.md` が定めるテーマトークン(`bg-accent`/`text-accent-text`/`bg-bg-subtle`/`text-muted` 等)。新しい配色トークンの追加はしない
 - クライアント: `src/app.tsx` の `ArticleListPage`(既に `isInbox`/`isBookmarks` 等をルートパスから独自に判定しているページコンポーネント)、`src/components/layout/header.tsx` / `page-layout.tsx`(既存のヘッダー・ページレイアウト)
 - サーバー: `GET /api/articles` の既存の `unread` クエリパラメータ(変更なしで利用のみ)
 - 共有: なし(新しい型はクライアント内に閉じる)
 
-依存の向き: `src/hooks/use-feed-unread-only.ts` → `src/components/article/feed-unread-only-toggle.tsx` → `src/app.tsx`(`ArticleListPage`)。`ArticleListPage` から `useFeedUnreadOnly` を直接呼び出し、`FeedUnreadOnlyToggle` は表示専用としてコールバックのみを受け取る。`ArticleListPage` は `PageLayout` の `headerRight` にトグル要素を渡し、`ArticleList` には `feedUnreadOnly` の値のみを props で渡す(セッターは渡さない。トグル操作自体は `ArticleListPage` が処理する)。この向きを逆流する import は許容しない。
+依存の向き: `src/hooks/use-feed-unread-only.ts` → `src/components/article/feed-unread-only-toggle.tsx` → `src/app.tsx`(`ArticleListPage`)。`ArticleListPage` から `useFeedUnreadOnly` を直接呼び出し、`FeedUnreadOnlyToggle` は表示専用としてコールバックのみを受け取る。`ArticleListPage` は `PageLayout` の `headerRight` にトグル要素を渡し、`ArticleList` には `feedUnreadOnly` の値のみを props で渡す(セッターは渡さない。トグル操作自体は `ArticleListPage` が処理する)。この向きを逆流する import は許容しない。`UnreadOnlyToggleSwitch`(`src/components/ui/`)は `FeedUnreadOnlyToggle` から利用される汎用UIプリミティブであり、フィード固有のロジックを持たない。
 
 ### Revalidation Triggers
 
@@ -63,6 +68,7 @@
 - `articles.allRead` / `articles.showReadArticles` の文言がカテゴリ向け専用の意味に変更されたとき。本機能での再利用が不適切になる
 - `Header`/`PageLayout` の `headerRight` プロパティの型・描画位置、または `ArticleListHandle.resetPagingAndScroll` のシグネチャ・挙動が変わったとき。`folder-unread-only-toggle` がこれらに依存しているため、変更時は両仕様を確認する
 - `ArticleListPage` の `isPlainFeedView` 相当の判定(`Boolean(feedId)`)が、ルーティング構造の変更(例: `/clips` 等が `:feedId` を持つルートに変わる)によって `ArticleList` 内の `isPlainFeedView` の判定と食い違うようになったとき
+- `UnreadOnlyToggleSwitch` の props 契約(`unreadOnly`/`onChange`/ラベル)や見た目の前提が変わったとき。`folder-unread-only-toggle` がこのプリミティブに依存しているため、変更時は両仕様を確認する
 
 ## Architecture
 
@@ -123,6 +129,21 @@ graph TB
 - `Header`/`PageLayout` に新設する `headerRight?: ReactNode` は汎用スロットであり、トグル固有のロジックを持たない。フィード/フォルダページ以外(受信箱・ブックマーク等)では `undefined` のままとなり、既存の余白(`w-8` スペーサー)と同じ見た目を保つ
 - ヘッダー右側スロットの画面上の幅・位置はフィード名/フォルダ名の文字数に依存しない(要件7.3)。タイトルは引き続き中央寄せの `flex-1` 領域に表示され、スロットの幅が変わってもタイトル文字列自体の長さには影響されない
 
+### Unread-Only Toggle Switch(要件8)
+
+現在の実装(`text-accent text-sm hover:underline` のテキストリンク)は、クリックしたときの遷移先を表す文言(例: `unreadOnly=true` のとき「すべて表示」)をラベルとして表示するため、今どちらのモードなのかをラベルの文言からしか判別できない。要件8はこれを解消するため、「すべて表示」「未読のみ表示」の両方の選択肢を常に視認できる2択スイッチに置き換える。
+
+検討した代替案(`research.md` 参照):
+- 単一ボタンのまま、アイコンやラベルの太字化だけで現在状態を示す案 → クリック前後で「次にどちらになるか」を利用者が読み取る必要が残り、要件8.1(両方の選択肢を常時視認できる)を満たさないため却下
+- フィード用・フォルダ用それぞれに個別のスイッチ実装を持つ案 → 見た目・挙動が完全に同一であり、実装の重複と将来の見た目の乖離リスクを避けるため却下
+- 採用: 汎用の2択スイッチ `UnreadOnlyToggleSwitch` を `src/components/ui/` に新設し、`FeedUnreadOnlyToggle`/`CategoryUnreadOnlyToggle` の双方がこれを利用する
+
+**Key decisions**:
+- `UnreadOnlyToggleSwitch` は「すべて表示」「未読のみ表示」の2つのセグメントを常に両方描画し、現在選択されている側のセグメントを既存の `Button` の `default` バリアントと同じテーマトークン(`bg-accent`/`text-accent-text`)で強調する。選択されていない側は `text-muted` とする(要件8.1, 8.2, 8.4)
+- セグメントのクリックは、クリックされたセグメントの値が現在の状態と異なる場合にのみ `onChange` を呼ぶ。既に選択中のセグメントをクリックしても状態は変化しない
+- `FeedUnreadOnlyToggle`/`CategoryUnreadOnlyToggle` の外部向けprops(`{ unreadOnly: boolean; onToggle: () => void }`)は変更しない。`onToggle` は内部で `UnreadOnlyToggleSwitch` の `onChange` から、現在と反対の状態が選択されたときにのみ呼び出される。これにより `ArticleListPage` 側の配線(要件7で確立済み)は変更不要になる
+- 色・形状・文字サイズは既存の `Button`/`IconButton` と同じテーマトークンのみを使う。新しい配色トークンの追加や、Issue添付イメージの配色・形状の再現は行わない(要件8.4)
+
 ### Technology Stack
 
 | Layer | Choice / Version | Role in Feature | Notes |
@@ -140,9 +161,12 @@ src/
 │   ├── use-feed-unread-only.ts        # New: per-feed unread-only state, localStorage-backed
 │   └── use-feed-unread-only.test.ts   # New: hook unit tests
 ├── components/
+│   ├── ui/
+│   │   ├── unread-only-toggle-switch.tsx       # New (要件8): shared 2-option toggle switch primitive
+│   │   └── unread-only-toggle-switch.test.tsx  # New (要件8): component tests
 │   ├── article/
-│   │   ├── feed-unread-only-toggle.tsx       # New: presentational toggle control
-│   │   ├── feed-unread-only-toggle.test.tsx  # New: component tests
+│   │   ├── feed-unread-only-toggle.tsx       # Modified (要件8): compose UnreadOnlyToggleSwitch instead of a text link
+│   │   ├── feed-unread-only-toggle.test.tsx  # Modified (要件8): assert both segments render and active-segment highlighting
 │   │   ├── article-list.tsx                  # Modified: unreadOnly composition from props, pagination/scroll reset exposed via ref
 │   │   └── article-list.test.tsx             # Modified: add coverage for the new behavior
 │   └── layout/
@@ -166,6 +190,7 @@ README.md                              # Modified: add a one-line feature bullet
 - `src/components/layout/header.tsx` — list モードの右側スペーサー(`<span className="w-8" />`)を `headerRight?: ReactNode` を描画する汎用スロットに置き換える。`headerRight` が無いときは既存と同じ見た目(空のスペーサー)を保つ。
 - `src/components/layout/page-layout.tsx` — `PageLayoutProps` に `headerRight?: ReactNode` を追加し、list モードの `Header` にそのまま渡す。detail モードには渡さない(要件7の対象は一覧ページのみ)。
 - `src/lib/i18n.ts` — `feed.unreadOnlyToggle.showUnreadOnly` / `feed.unreadOnlyToggle.showAll` の2キーを `ja`/`en`/`zh` で追加する。
+- `src/components/article/feed-unread-only-toggle.tsx`(要件8) — 内部の描画をテキストリンクから `UnreadOnlyToggleSwitch` の利用に置き換える。外部向けprops(`{ unreadOnly, onToggle }`)は変更しない。既存の `feed.unreadOnlyToggle.showAll`/`showUnreadOnly` キーを、各セグメントの `aria-label` としてそのまま再利用する(新規i18nキーの追加は不要)。
 - `docs/spec/01_overview.md` — 新規ドキュメントへのリンクを追加する。
 - `README.md` — 機能一覧に1行追加する(`docs.md` ルールに従い、ユーザー向け機能の変更として反映)。
 
@@ -217,13 +242,18 @@ sequenceDiagram
 | 7.1 | スクロール中もトグルを表示し続ける | Header, PageLayout | `headerRight` prop | — |
 | 7.2 | フィード名と同じ常時表示領域に配置する | Header, PageLayout, ArticleListPage | `headerRight` prop | トグル切り替えシーケンス |
 | 7.3 | フィード名の文字数でトグルの位置が変わらない | Header | 右側スロットの固定配置(`headerRight` はタイトルの `flex-1` 領域と独立) | — |
+| 8.1 | 両方の選択肢を常に視認できる形で示す | UnreadOnlyToggleSwitch | 2セグメントの常時描画 | — |
+| 8.2 | 現在選択されている側を区別できるように強調する | UnreadOnlyToggleSwitch | アクティブセグメントのテーマトークン強調(`bg-accent`/`text-accent-text`) | — |
+| 8.3 | 切り替え直後に選択状態を即座に反映する | UnreadOnlyToggleSwitch, FeedUnreadOnlyToggle | `onChange` → `onToggle` の同期呼び出し | トグル切り替えシーケンス |
+| 8.4 | 配色・形状・文字サイズを既存デザインと一貫させる | UnreadOnlyToggleSwitch | 既存 `Button` と同じテーマトークンの利用、新規トークン追加なし | — |
 
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|---------------|---------------------------|-----------|
 | useFeedUnreadOnly | Client State | フィードIDごとの表示状態を保持・永続化する | 3.1-3.4, 4.1-4.2 | BrowserStorage (P0) | State |
-| FeedUnreadOnlyToggle | UI | トグルの表示とクリックイベントの通知 | 1.1, 1.5, 6.1 | useFeedUnreadOnly の戻り値 (P0) | State |
+| UnreadOnlyToggleSwitch | UI | 「すべて表示」/「未読のみ表示」を常に両方視認できる形で示す汎用2択スイッチ | 8.1-8.4 | テーマトークン(既存 Button と共通)(P1) | State |
+| FeedUnreadOnlyToggle | UI | トグルの表示とクリックイベントの通知(`UnreadOnlyToggleSwitch` を利用) | 1.1, 1.5, 6.1, 8.1-8.4 | useFeedUnreadOnly の戻り値 (P0), UnreadOnlyToggleSwitch (P0) | State |
 | ArticleListPage(変更箇所) | UI / Integration | `useFeedUnreadOnly` の呼び出し、`FeedUnreadOnlyToggle` の生成、`headerRight` への配線、トグル操作時の `resetPagingAndScroll` 呼び出し | 1.1, 1.5, 5.1-5.2, 7.1-7.3 | useFeedUnreadOnly (P0), FeedUnreadOnlyToggle (P0), PageLayout (P0), ArticleListHandle (P0) | State |
 | Header / PageLayout(変更箇所) | UI | ヘッダー右側に汎用アクションスロット(`headerRight`)を提供する | 7.1-7.3 | — | State |
 | ArticleList(変更箇所) | UI / Integration | 個別フィード判定、`unreadOnly` 合成、`resetPagingAndScroll` の公開、空状態の拡張 | 1.1-1.4, 1.2, 2.1-2.2, 5.1-5.2 | FeedUnreadOnlyState prop (P0), useSWRInfinite (P0) | State |
@@ -271,16 +301,46 @@ export function useFeedUnreadOnly(
 
 ### UI
 
+#### UnreadOnlyToggleSwitch(要件8、新設)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 「すべて表示」/「未読のみ表示」の2つの選択肢を常に両方視認できる形で示し、現在選択されている側を区別できるように強調する汎用UIプリミティブ。フィード固有・フォルダ固有のロジックを持たない |
+| Requirements | 8.1, 8.2, 8.3, 8.4 |
+
+**Responsibilities & Constraints**
+- 表示専用。状態の保持・永続化ロジックを持たない
+- 2つのセグメント(「すべて表示」/「未読のみ表示」)を常に両方描画する(要件8.1)。現在選択されている側は既存の `Button` の `default` バリアントと同じテーマトークン(`bg-accent`/`text-accent-text`)で強調し、選択されていない側は `text-muted` とする(要件8.2, 8.4)
+- クリックされたセグメントの値が現在の `unreadOnly` と異なるときにのみ `onChange` を呼ぶ。既に選択中のセグメントをクリックしても `onChange` は呼ばれない
+- ラベルはこのコンポーネント自身では持たず、呼び出し元から渡されるアクセシブルラベル文字列をそのまま各セグメントの `aria-label` に設定する(多言語対応は呼び出し元のi18n辞書に委譲する)
+
+```typescript
+interface UnreadOnlyToggleSwitchProps {
+  unreadOnly: boolean
+  onChange: (unreadOnly: boolean) => void
+  /** aria-label for the "show all" segment */
+  showAllLabel: string
+  /** aria-label for the "unread only" segment */
+  unreadOnlyLabel: string
+}
+```
+
+**Implementation Notes**
+- Integration: `FeedUnreadOnlyToggle`(本機能)と `CategoryUnreadOnlyToggle`(`folder-unread-only-toggle`)の双方から利用される
+- Validation: 該当なし(表示専用)
+- Risks: 該当なし
+
 #### FeedUnreadOnlyToggle
 
 | Field | Detail |
 |-------|--------|
-| Intent | 現在の表示状態を示し、クリックで切り替えを通知する控えめなリンク型トグル |
-| Requirements | 1.1, 1.5, 6.1 |
+| Intent | `UnreadOnlyToggleSwitch` にフィード向けのラベルを渡して描画し、選択が変わったときに `onToggle` へ通知する |
+| Requirements | 1.1, 1.5, 6.1, 8.1-8.4 |
 
 **Responsibilities & Constraints**
 - 表示専用。状態の保持・永続化ロジックを持たない
 - `settings.showFeedActivity` の値に関わらず常に描画される(呼び出し元である `ArticleList` がこの条件を課さない)
+- 内部で `UnreadOnlyToggleSwitch` を使用する(要件8)。外部向けprops(`{ unreadOnly, onToggle }`)は変更しない。既存の `feed.unreadOnlyToggle.showAll`/`showUnreadOnly` の文言を、`UnreadOnlyToggleSwitch` の `showAllLabel`/`unreadOnlyLabel` としてそのまま渡す
 
 ```typescript
 interface FeedUnreadOnlyToggleProps {
@@ -410,9 +470,13 @@ interface HeaderProps {
 - `useFeedUnreadOnly`: `feedId` が `undefined` のとき、常に `'off'` を返し保存も行わない
 
 ### Component Tests
-- `FeedUnreadOnlyToggle`: `unreadOnly=false` のとき「未読のみ表示」に相当するラベルを表示する
-- `FeedUnreadOnlyToggle`: `unreadOnly=true` のとき「すべて表示」に相当するラベルを表示する
-- `FeedUnreadOnlyToggle`: クリックで `onToggle` が呼ばれる
+- `UnreadOnlyToggleSwitch`: `unreadOnly` の値に関わらず、「すべて表示」「未読のみ表示」の両方のセグメントが常に描画される(要件8.1)
+- `UnreadOnlyToggleSwitch`: `unreadOnly=false` のとき「すべて表示」セグメントが強調表示(アクティブ)される(要件8.2)
+- `UnreadOnlyToggleSwitch`: `unreadOnly=true` のとき「未読のみ表示」セグメントが強調表示(アクティブ)される(要件8.2)
+- `UnreadOnlyToggleSwitch`: 現在選択されていない側のセグメントをクリックすると `onChange` が反対の値で呼ばれる(要件8.3)
+- `UnreadOnlyToggleSwitch`: 現在選択されている側のセグメントをクリックしても `onChange` は呼ばれない
+- `FeedUnreadOnlyToggle`: `unreadOnly=false`/`true` のいずれでも、両方のセグメントの `aria-label` が既存の `feed.unreadOnlyToggle.*` 文言で描画される(要件6.1, 8.1)
+- `FeedUnreadOnlyToggle`: 現在の状態と異なるセグメントをクリックすると `onToggle` が呼ばれる。現在の状態と同じセグメントをクリックしても `onToggle` は呼ばれない(旧: 常に `onToggle` が呼ばれる、というテキストリンク時代の前提を置き換える回帰防止テスト)
 
 ### Integration Tests(`article-list.test.tsx`)
 - `feedUnreadOnly` prop が `'on'` のとき `getKey` が生成するリクエストに `unread=1` が含まれる

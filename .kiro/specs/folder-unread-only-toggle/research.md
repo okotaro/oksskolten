@@ -8,6 +8,7 @@
   - A global `reading.category_unread_only` setting already exists (`src/hooks/use-category-unread-only.ts`, Settings → Reading section), synced to the server via `use-settings.ts` / `server/routes/settings.ts`. It has no per-category memory, no in-list state indicator, and its "empty when unread-only" escape hatch (`showReadArticles`) is a one-shot, non-persisted local flag reset on every feed/category change.
   - `feed-unread-only-toggle` already established the exact UX and architecture pattern this feature needs (per-key `localStorage` hook re-derived via `useEffect` keyed on the route id, a presentation-only toggle component, `setSize(1)` + `window.scrollTo(0, 0)` on switch, reuse of the generic `articles.allRead` / `articles.showReadArticles` empty-state copy). This feature reuses that pattern rather than inventing a new one.
   - `ArticleList` does not remount across `/categories/:id` navigation (no route `key`), exactly as with `/feeds/:id` — the existing `useEffect` keyed on `[feedId, categoryId]` is the established mechanism for resetting per-view local state.
+  - [Issue #15](https://github.com/okotaro/oksskolten/issues/15) への対応として、`feed-unread-only-toggle`(要件8)が新設する汎用2択スイッチ `UnreadOnlyToggleSwitch`(`src/components/ui/`)を、本機能はそのまま再利用する。新しいスイッチ実装は追加しない(詳細は下記「Issue #15への対応」参照)。
 
 ## Research Log
 
@@ -35,6 +36,13 @@
 - **Findings**: The `headerRight` slot and the `ArticleListHandle.resetPagingAndScroll` method are generic — neither is specific to the feed toggle. `categoryId` and `isPlainFeedView` are mutually exclusive on the current routes, so both toggles can share the same slot without ever colliding.
 - **Implications**: This feature does not introduce a second slot or a duplicate reset method. `useCategoryUnreadOnly`'s call site moves from `ArticleList` to `ArticleListPage` (mirroring the feed feature), and `CategoryUnreadOnlyToggle` is rendered into the existing `headerRight` slot. `resetPagingAndScroll` is reused as-is.
 
+### Issue #15への対応(表示状態の見た目による判別性)
+
+- **Context**: [Issue #15](https://github.com/okotaro/oksskolten/issues/15) で「今どちらの表示モードか、切り替えたら何のモードになるかが一目でわからない」という指摘を受けた。`feed-unread-only-toggle` 側で同じ指摘への対応として、汎用の2択スイッチ `UnreadOnlyToggleSwitch`(`src/components/ui/`)が新設される(要件8)。
+- **Sources Consulted**: `.kiro/specs/feed-unread-only-toggle/design.md`(要件8セクション)、`src/components/article/category-unread-only-toggle.tsx`(現行実装、`text-accent text-sm hover:underline` のテキストリンク)。
+- **Findings**: `CategoryUnreadOnlyToggle` は `FeedUnreadOnlyToggle` と同一の見た目・操作パターンを踏襲する方針が既存の設計(`FeedUnreadOnlyToggle` と同一の見た目・操作パターンを踏襲する)で確立済みであり、新設される `UnreadOnlyToggleSwitch` をそのまま利用すれば見た目の一貫性を保てる。独自のスイッチ実装を追加する理由がない。
+- **Implications**: `CategoryUnreadOnlyToggle` の内部実装を `UnreadOnlyToggleSwitch` の利用に差し替える。外部向けprops(`{ unreadOnly, onToggle }`)は変更しない。既存の `category.unreadOnlyToggle.showAll`/`showUnreadOnly` の文言を、各セグメントの `aria-label` としてそのまま再利用する。
+
 ## Architecture Pattern Evaluation
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
@@ -42,6 +50,8 @@
 | Per-category `localStorage` hook (chosen) | Same shape as `useFeedUnreadOnly`, keyed by `categoryId` | Proven pattern already in production; no new abstraction; symmetric with feed feature | None material | Matches Requirement 3.3 (local-only, no cross-device sync) |
 | Extend `createLocalStorageHook` to accept a dynamic key | Generalize the existing factory | Single shared factory | The factory's `useState` lazy-init only runs once per mount; making it dynamic requires the same `useEffect` re-derivation logic anyway, so the "shared factory" saves no code while adding an abstraction layer with only two call sites | Rejected — see Simplification below |
 | Keep the global setting and add a per-category override on top | Additive rather than replacing | No migration needed | Two sources of truth for the same concept, precedence rules to design and explain in UI; explicitly rejected by the product decision in `requirements.md` Requirement 4 | Rejected per user decision |
+| `UnreadOnlyToggleSwitch`(`feed-unread-only-toggle` 新設)を再利用する(採用) | `CategoryUnreadOnlyToggle` の内部実装のみ差し替える | 見た目・挙動の一貫性、実装重複なし | `feed-unread-only-toggle` の完了に依存するタスク順序制約が生まれる | `headerRight` の再利用と同じパターン |
+| フォルダ専用の2択スイッチを独自実装する | `CategoryUnreadOnlyToggle` 内で独自にスイッチUIを実装 | 他仕様への依存が生まれない | `FeedUnreadOnlyToggle` と見た目・挙動が重複し、将来の乖離リスクがある | 不採用 |
 
 ## Design Decisions
 
@@ -85,12 +95,23 @@
 - **Trade-offs**: This feature depends on `feed-unread-only-toggle`'s `headerRight` prop and `ArticleListHandle.resetPagingAndScroll` shape remaining stable (see design.md Revalidation Triggers).
 - **Follow-up**: None.
 
+### Decision: 独自スイッチを実装せず、`feed-unread-only-toggle` が新設する `UnreadOnlyToggleSwitch` を再利用する
+- **Context**: Issue #15。`CategoryUnreadOnlyToggle` は元々 `FeedUnreadOnlyToggle` と同一の見た目・操作パターンを踏襲する方針だった。
+- **Alternatives Considered**:
+  1. `CategoryUnreadOnlyToggle` 内でフォルダ専用の2択スイッチを独自実装する
+  2. `feed-unread-only-toggle`(要件8)が新設する `UnreadOnlyToggleSwitch` を、フォルダ向けラベルを渡して再利用する
+- **Selected Approach**: 2を採用。`CategoryUnreadOnlyToggle` の外部向けprops(`{ unreadOnly, onToggle }`)は変更しない。
+- **Rationale**: `headerRight` スロット(要件7/8)を再利用した判断と同じ理由: 両トグルは見た目・挙動が完全に同一であるべきで、独自実装は重複と将来の乖離リスクを生む。
+- **Trade-offs**: 本機能の実装(要件9)が `feed-unread-only-toggle` の要件8完了に依存する。`headerRight`/`resetPagingAndScroll` と同様の既存の依存パターンであり、新しいリスクの種類ではない。
+- **Follow-up**: `UnreadOnlyToggleSwitch` の props 契約や見た目が変わった場合は本仕様側の配線を確認する(design.md の Revalidation Triggers 参照)。
+
 ## Risks & Mitigations
 - Risk: A reviewer or future change might reintroduce a global-setting-style control for categories, recreating the dual-source-of-truth problem this change removes — Mitigation: `Revalidation Triggers` below calls this out explicitly.
 - Risk: `docs/spec/87_feature_feed_unread_only.md` currently documents the (now removed) global setting as a sibling concept ("category views ... a global setting") — Mitigation: File Structure Plan includes updating that doc alongside the new one.
 - Risk: Forgetting to remove `reading.category_unread_only` from `server/routes/settings.ts` `PREF_KEYS`/`PREF_ALLOWED` while removing the frontend wiring would leave dead server-side code (harmless) or, if done the other way around, would cause 400s on the frontend's now-absent PATCH calls — Mitigation: File Structure Plan lists both files together per `.claude/rules/settings-sync.md`.
 
 ## References
-- [feed-unread-only-toggle design](../feed-unread-only-toggle/design.md) — direct architectural precedent for this feature, including the shared `headerRight` slot.
+- [feed-unread-only-toggle design](../feed-unread-only-toggle/design.md) — direct architectural precedent for this feature, including the shared `headerRight` slot and (要件8)`UnreadOnlyToggleSwitch`.
 - [feed-unread-only-toggle requirements](../feed-unread-only-toggle/requirements.md) — Out-of-scope note that named the global category setting this feature now replaces.
 - [Issue #14](https://github.com/okotaro/oksskolten/issues/14) — toggle-hidden-by-scroll fix that introduced the shared `headerRight` slot.
+- [Issue #15](https://github.com/okotaro/oksskolten/issues/15) — 未読表示/既読表示のテキストリンクをトグルボタンにする
