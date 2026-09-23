@@ -1,5 +1,6 @@
 import { getDb, runNamed } from './connection.js'
 import type { Category } from './types.js'
+import type { MarkAllSeenResponse } from '../../shared/types.js'
 import { syncArticleFiltersToSearch } from '../search/sync.js'
 
 export function getCategories(): Category[] {
@@ -50,7 +51,7 @@ export function deleteCategory(id: number): boolean {
   return result.changes > 0
 }
 
-export function markAllSeenByCategory(categoryId: number): { updated: number } {
+export function markAllSeenByCategory(categoryId: number): MarkAllSeenResponse {
   const affectedIds = (getDb().prepare(
     'SELECT id FROM active_articles WHERE seen_at IS NULL AND category_id = ?',
   ).all(categoryId) as { id: number }[]).map(r => r.id)
@@ -60,5 +61,5 @@ export function markAllSeenByCategory(categoryId: number): { updated: number } {
   if (affectedIds.length > 0) {
     syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
   }
-  return { updated: result.changes }
+  return { updated: result.changes, ids: affectedIds }
 }
