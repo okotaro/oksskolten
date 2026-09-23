@@ -20,6 +20,7 @@ Typical RSS readers only display the title and summary provided by the feed, req
 > - [86_feature_bulk_mark_read.md](./86_feature_bulk_mark_read.md) — Bulk Mark-as-Read
 > - [87_feature_feed_unread_only.md](./87_feature_feed_unread_only.md) — Feed Unread-Only Toggle
 > - [88_feature_category_unread_only.md](./88_feature_category_unread_only.md) — Category (Folder) Unread-Only Toggle
+> - [89_feature_mark_all_read_button.md](./89_feature_mark_all_read_button.md) — Mark-All-Read Button
 > - [90_perf_retry_backoff.md](./90_perf_retry_backoff.md) — Exponential Backoff for Article Retry
 > - [91_perf_score_recalculation.md](./91_perf_score_recalculation.md) — Score Recalculation Optimization
 

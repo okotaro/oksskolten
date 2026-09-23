@@ -771,8 +771,10 @@ Returns `404` if the feed does not exist.
 
 ```json
 // Response: 200
-{ "updated": 5 }
+{ "updated": 5, "ids": [101, 102, 103, 104, 105] }
 ```
+
+`ids` lists the article IDs newly marked read, for feeding into `POST /api/articles/batch-unseen` to undo. See [89_feature_mark_all_read_button.md](./89_feature_mark_all_read_button.md).
 
 
 **GET /api/feeds/:id/fetch-progress** — Feed fetch progress (SSE)
@@ -846,8 +848,10 @@ The `category_id` of associated feeds is set to `NULL` (feeds themselves are not
 
 ```json
 // Response: 200
-{ "updated": 15 }
+{ "updated": 15, "ids": [201, 202, 203] }
 ```
+
+`ids` lists the article IDs newly marked read, for feeding into `POST /api/articles/batch-unseen` to undo. See [89_feature_mark_all_read_button.md](./89_feature_mark_all_read_button.md).
 
 
 #### Settings Endpoints
