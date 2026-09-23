@@ -55,12 +55,13 @@ describe('UnreadOnlyToggleSwitch', () => {
     expect(onChange).toHaveBeenCalledWith(false)
   })
 
-  it('does not call onChange when the already-active segment is clicked', () => {
+  it('calls onChange with the opposite value when the already-active segment is clicked', () => {
     const onChange = vi.fn()
     render(
       <UnreadOnlyToggleSwitch unreadOnly={false} onChange={onChange} showAllLabel="Show all" unreadOnlyLabel="Unread only" showAllText="All" unreadOnlyText="Unread" />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
-    expect(onChange).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith(true)
   })
 })

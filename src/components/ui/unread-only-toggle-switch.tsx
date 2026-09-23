@@ -19,8 +19,8 @@ const segmentClass = 'flex h-6 shrink-0 items-center justify-center whitespace-n
  * Presentation-only 2-option switch that always shows both "show all" and
  * "unread only" segments, highlighting whichever is currently active.
  *
- * Clicking the already-active segment is a no-op; onChange only fires when
- * the clicked segment differs from the current value.
+ * Clicking either segment toggles the value, regardless of which segment is
+ * currently active.
  */
 export function UnreadOnlyToggleSwitch({
   unreadOnly,
@@ -30,15 +30,15 @@ export function UnreadOnlyToggleSwitch({
   showAllText,
   unreadOnlyText,
 }: UnreadOnlyToggleSwitchProps) {
+  const toggle = () => onChange(!unreadOnly)
+
   return (
     <div role="group" className="inline-flex items-center gap-0.5 rounded-full bg-bg-subtle p-0.5">
       <button
         type="button"
         aria-label={showAllLabel}
         aria-pressed={!unreadOnly}
-        onClick={() => {
-          if (unreadOnly) onChange(false)
-        }}
+        onClick={toggle}
         className={cn(segmentClass, !unreadOnly ? 'bg-accent text-accent-text' : 'text-muted hover:text-text')}
       >
         {showAllText}
@@ -47,9 +47,7 @@ export function UnreadOnlyToggleSwitch({
         type="button"
         aria-label={unreadOnlyLabel}
         aria-pressed={unreadOnly}
-        onClick={() => {
-          if (!unreadOnly) onChange(true)
-        }}
+        onClick={toggle}
         className={cn(segmentClass, unreadOnly ? 'bg-accent text-accent-text' : 'text-muted hover:text-text')}
       >
         {unreadOnlyText}

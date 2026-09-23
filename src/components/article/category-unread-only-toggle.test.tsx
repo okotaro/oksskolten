@@ -29,10 +29,11 @@ describe('CategoryUnreadOnlyToggle', () => {
     expect(onToggle).toHaveBeenCalledWith()
   })
 
-  it('does not invoke onToggle when the already-active segment is clicked', () => {
+  it('invokes onToggle when the already-active segment is clicked', () => {
     const onToggle = vi.fn()
     render(<CategoryUnreadOnlyToggle unreadOnly={false} onToggle={onToggle} />)
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
-    expect(onToggle).not.toHaveBeenCalled()
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onToggle).toHaveBeenCalledWith()
   })
 })
