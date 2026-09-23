@@ -250,3 +250,64 @@ describe('demoStore.batchUnseen', () => {
     expect(seenIds()).toEqual([4])
   })
 })
+
+describe('demoStore.markAllSeenByFeed', () => {
+  it('marks every unread article in the feed and returns their ids, excluding already-read ones', () => {
+    // feed 1: a1, a2, a6 unread; a4 already read.
+    const result = store.markAllSeenByFeed(1)
+    expect(sorted(result.ids)).toEqual([1, 2, 6])
+    expect(result.updated).toBe(3)
+    expect(seenIds()).toEqual([1, 2, 4, 6])
+    expect(article(4).seen_at).toBe(seed.A4_SEEN_AT)
+  })
+
+  it('does not touch articles in other feeds', () => {
+    store.markAllSeenByFeed(1)
+    expect(article(3).seen_at).toBeNull()
+    expect(article(7).seen_at).toBeNull()
+    expect(article(5).seen_at).toBeNull()
+  })
+
+  it('the returned ids can be undone via batchUnseen', () => {
+    const result = store.markAllSeenByFeed(1)
+    store.batchUnseen(result.ids)
+    expect(article(1).seen_at).toBeNull()
+    expect(article(2).seen_at).toBeNull()
+    expect(article(6).seen_at).toBeNull()
+    // Already-read article outside the returned ids is untouched by the undo.
+    expect(article(4).seen_at).toBe(seed.A4_SEEN_AT)
+  })
+
+  it('returns updated: 0 and ids: [] when nothing is unread in scope', () => {
+    store.markAllSeenByFeed(1)
+    const second = store.markAllSeenByFeed(1)
+    expect(second).toEqual({ updated: 0, ids: [] })
+  })
+})
+
+describe('demoStore.markAllSeenByCategory', () => {
+  it('marks every unread article across the category feeds and returns their ids', () => {
+    // category 10 covers feed 1 and feed 2: a1, a2, a3, a6, a7 unread; a4 already read.
+    const result = store.markAllSeenByCategory(10)
+    expect(sorted(result.ids)).toEqual([1, 2, 3, 6, 7])
+    expect(result.updated).toBe(5)
+    expect(article(4).seen_at).toBe(seed.A4_SEEN_AT)
+  })
+
+  it('does not touch articles in other categories', () => {
+    store.markAllSeenByCategory(10)
+    expect(article(5).seen_at).toBeNull()
+  })
+
+  it('the returned ids can be undone via batchUnseen', () => {
+    const result = store.markAllSeenByCategory(10)
+    store.batchUnseen(result.ids)
+    expect(seenIds()).toEqual([4])
+  })
+
+  it('returns updated: 0 and ids: [] when nothing is unread in scope', () => {
+    store.markAllSeenByCategory(10)
+    const second = store.markAllSeenByCategory(10)
+    expect(second).toEqual({ updated: 0, ids: [] })
+  })
+})

@@ -10,6 +10,7 @@ import {
   createFeed,
   insertArticle,
   getArticles,
+  markArticleSeen,
 } from '../db.js'
 
 beforeEach(() => {
@@ -151,11 +152,13 @@ describe('markAllSeenByCategory', () => {
   it('marks unseen articles in category as seen', () => {
     const cat = createCategory('Tech')
     const feed = createFeed({ name: 'Feed', url: 'https://example.com', category_id: cat.id })
-    seedArticle(feed.id)
-    seedArticle(feed.id)
+    const id1 = seedArticle(feed.id)
+    const id2 = seedArticle(feed.id)
 
     const result = markAllSeenByCategory(cat.id)
     expect(result.updated).toBe(2)
+    expect(result.ids).toHaveLength(result.updated)
+    expect(result.ids.slice().sort()).toEqual([id1, id2].sort())
   })
 
   it('does not re-mark already seen articles', () => {
@@ -166,12 +169,26 @@ describe('markAllSeenByCategory', () => {
     markAllSeenByCategory(cat.id)
     const result = markAllSeenByCategory(cat.id)
     expect(result.updated).toBe(0)
+    expect(result.ids).toEqual([])
   })
 
-  it('returns 0 when no articles in category', () => {
+  it('returns 0 and empty ids when no articles in category', () => {
     const cat = createCategory('Empty')
     const result = markAllSeenByCategory(cat.id)
     expect(result.updated).toBe(0)
+    expect(result.ids).toEqual([])
+  })
+
+  it('excludes already-read articles from ids', () => {
+    const cat = createCategory('Tech')
+    const feed = createFeed({ name: 'Feed', url: 'https://example.com', category_id: cat.id })
+    const alreadyReadId = seedArticle(feed.id)
+    markArticleSeen(alreadyReadId, true)
+    const unreadId = seedArticle(feed.id)
+
+    const result = markAllSeenByCategory(cat.id)
+    expect(result.updated).toBe(1)
+    expect(result.ids).toEqual([unreadId])
   })
 
   it('only marks articles in the specified category', () => {

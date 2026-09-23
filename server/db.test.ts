@@ -21,6 +21,7 @@ import {
   markArticleSeen,
   markArticlesSeen,
   markAllSeenByFeed,
+  markArticlesUnseen,
   recordArticleRead,
   markArticleBookmarked,
   getBookmarkCount,
@@ -366,14 +367,50 @@ describe('Articles', () => {
 
   it('markAllSeenByFeed marks all feed articles as seen', () => {
     const feed = seedFeed()
-    seedArticle(feed.id, { url: 'https://example.com/1' })
-    seedArticle(feed.id, { url: 'https://example.com/2' })
+    const id1 = seedArticle(feed.id, { url: 'https://example.com/1' })
+    const id2 = seedArticle(feed.id, { url: 'https://example.com/2' })
 
     const result = markAllSeenByFeed(feed.id)
     expect(result.updated).toBe(2)
+    expect(result.ids).toHaveLength(result.updated)
+    expect(result.ids.slice().sort()).toEqual([id1, id2].sort())
 
     const { articles } = getArticles({ feedId: feed.id, limit: 100, offset: 0 })
     expect(articles.every(a => a.seen_at !== null)).toBe(true)
+  })
+
+  it('markAllSeenByFeed returns empty ids when the feed has no unread articles', () => {
+    const feed = seedFeed()
+
+    const result = markAllSeenByFeed(feed.id)
+    expect(result.updated).toBe(0)
+    expect(result.ids).toEqual([])
+  })
+
+  it('markAllSeenByFeed excludes already-read articles from ids', () => {
+    const feed = seedFeed()
+    const alreadyReadId = seedArticle(feed.id, { url: 'https://example.com/already-read' })
+    markArticleSeen(alreadyReadId, true)
+    const unreadId = seedArticle(feed.id, { url: 'https://example.com/unread' })
+
+    const result = markAllSeenByFeed(feed.id)
+    expect(result.updated).toBe(1)
+    expect(result.ids).toEqual([unreadId])
+  })
+
+  it('markAllSeenByFeed ids can be passed to markArticlesUnseen to revert exactly those articles', () => {
+    const feed = seedFeed()
+    const alreadyReadId = seedArticle(feed.id, { url: 'https://example.com/already-read' })
+    markArticleSeen(alreadyReadId, true)
+    const unreadId1 = seedArticle(feed.id, { url: 'https://example.com/unread-1' })
+    const unreadId2 = seedArticle(feed.id, { url: 'https://example.com/unread-2' })
+
+    const result = markAllSeenByFeed(feed.id)
+    markArticlesUnseen(result.ids)
+
+    expect(getArticleById(alreadyReadId)!.seen_at).not.toBeNull()
+    expect(getArticleById(unreadId1)!.seen_at).toBeNull()
+    expect(getArticleById(unreadId2)!.seen_at).toBeNull()
   })
 
   it('recordArticleRead sets read_at and seen_at', () => {

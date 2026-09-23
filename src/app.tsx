@@ -15,6 +15,8 @@ import { FeedUnreadOnlyToggle } from './components/article/feed-unread-only-togg
 import { useFeedUnreadOnly } from './hooks/use-feed-unread-only'
 import { CategoryUnreadOnlyToggle } from './components/article/category-unread-only-toggle'
 import { useCategoryUnreadOnly } from './hooks/use-category-unread-only'
+import { MarkAllReadButton } from './components/article/mark-all-read-button'
+import type { MarkAllReadTarget } from '../shared/types'
 import { ArticleDetail } from './components/article/article-detail'
 import { ArticleRawPage } from './components/article/article-raw-page'
 import { PageLayout } from './components/layout/page-layout'
@@ -167,23 +169,46 @@ export function ArticleListPage() {
 
   // isPlainFeedView and categoryIdNum !== undefined are mutually exclusive:
   // /feeds/:feedId and /categories/:categoryId are separate routes, so the
-  // header never needs to choose between the two toggles at once.
+  // header never needs to choose between the two toggles at once. The same
+  // exclusivity derives the mark-all-read target: it is naturally undefined
+  // on every other view (inbox, bookmarks, likes, history, clips), which is
+  // what keeps the button off those views.
+  const markAllReadTarget: MarkAllReadTarget | undefined = isPlainFeedView
+    ? { type: 'feed', id: Number(feedId) }
+    : categoryIdNum !== undefined
+      ? { type: 'category', id: categoryIdNum }
+      : undefined
+
+  const markAllReadButton = markAllReadTarget && (
+    <MarkAllReadButton
+      target={markAllReadTarget}
+      onMarkedLocally={ids => articleListRef.current?.markLocallyRead(ids)}
+      onUnmarkedLocally={ids => articleListRef.current?.unmarkLocallyRead(ids)}
+    />
+  )
+
   const headerRight = isPlainFeedView ? (
-    <FeedUnreadOnlyToggle
-      unreadOnly={feedUnreadOnly === 'on'}
-      onToggle={() => {
-        setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
-        articleListRef.current?.resetPagingAndScroll()
-      }}
-    />
+    <div className="flex items-center gap-2">
+      {markAllReadButton}
+      <FeedUnreadOnlyToggle
+        unreadOnly={feedUnreadOnly === 'on'}
+        onToggle={() => {
+          setFeedUnreadOnly(feedUnreadOnly === 'on' ? 'off' : 'on')
+          articleListRef.current?.resetPagingAndScroll()
+        }}
+      />
+    </div>
   ) : categoryIdNum !== undefined ? (
-    <CategoryUnreadOnlyToggle
-      unreadOnly={categoryUnreadOnly === 'on'}
-      onToggle={() => {
-        setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
-        articleListRef.current?.resetPagingAndScroll()
-      }}
-    />
+    <div className="flex items-center gap-2">
+      {markAllReadButton}
+      <CategoryUnreadOnlyToggle
+        unreadOnly={categoryUnreadOnly === 'on'}
+        onToggle={() => {
+          setCategoryUnreadOnly(categoryUnreadOnly === 'on' ? 'off' : 'on')
+          articleListRef.current?.resetPagingAndScroll()
+        }}
+      />
+    </div>
   ) : undefined
 
   return (

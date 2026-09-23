@@ -1,6 +1,6 @@
 import { getDb, runNamed, getNamed, allNamed } from './connection.js'
 import type { Article, ArticleListItem, ArticleDetail } from './types.js'
-import type { BulkReadDirection, BulkReadScope } from '../../shared/types.js'
+import type { BulkReadDirection, BulkReadScope, MarkAllSeenResponse } from '../../shared/types.js'
 import type { MeiliArticleDoc } from '../search/client.js'
 import { syncArticleToSearch, deleteArticleFromSearch, deleteArticlesFromSearch, syncArticleScoreToSearch, syncArticleFiltersToSearch } from '../search/sync.js'
 import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
@@ -316,8 +316,8 @@ export function markArticlesSeen(ids: number[]): { updated: number } {
   return { updated: result.changes }
 }
 
-export function markAllSeenByFeed(feedId: number): { updated: number } {
-  // Collect affected IDs before update for search sync
+export function markAllSeenByFeed(feedId: number): MarkAllSeenResponse {
+  // Collect affected IDs before update for search sync, and to return to the caller
   const affectedIds = (getDb().prepare(
     'SELECT id FROM active_articles WHERE feed_id = ? AND seen_at IS NULL',
   ).all(feedId) as { id: number }[]).map(r => r.id)
@@ -325,7 +325,7 @@ export function markAllSeenByFeed(feedId: number): { updated: number } {
   if (affectedIds.length > 0) {
     syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
   }
-  return { updated: result.changes }
+  return { updated: result.changes, ids: affectedIds }
 }
 
 /** Result of a bulk mark-as-read over a range. */

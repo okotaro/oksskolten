@@ -756,6 +756,43 @@ describe('ArticleList', () => {
     expect(scrollToSpy).toHaveBeenCalledWith(0, 0)
   })
 
+  it('exposes markLocallyRead/unmarkLocallyRead via the imperative handle, sharing the same local read-state as scroll auto-read and bulk mark-read', () => {
+    const listMutate = setArticles([
+      makeArticle({ id: 1, title: 'One' }),
+      makeArticle({ id: 2, title: 'Two' }),
+    ])
+    const articleListRef = { current: null as ArticleListHandle | null }
+    renderArticleList('/inbox', { articleListRef })
+
+    // Both start unread
+    expect(document.querySelector('[data-article-id="1"]')?.getAttribute('data-article-unread')).toBe('1')
+    expect(document.querySelector('[data-article-id="2"]')?.getAttribute('data-article-unread')).toBe('1')
+    expect(screen.getByTestId('article-1').getAttribute('data-seen')).toBe('0')
+    expect(screen.getByTestId('article-2').getAttribute('data-seen')).toBe('0')
+
+    act(() => {
+      articleListRef.current!.markLocallyRead([1, 2])
+    })
+
+    // Marked read without any refetch — same visual mechanism as auto-read/bulk mark-read
+    expect(document.querySelector('[data-article-id="1"]')?.getAttribute('data-article-unread')).toBe('0')
+    expect(document.querySelector('[data-article-id="2"]')?.getAttribute('data-article-unread')).toBe('0')
+    expect(screen.getByTestId('article-1').getAttribute('data-seen')).toBe('1')
+    expect(screen.getByTestId('article-2').getAttribute('data-seen')).toBe('1')
+
+    act(() => {
+      articleListRef.current!.unmarkLocallyRead([1])
+    })
+
+    // Reverted for id 1 only
+    expect(document.querySelector('[data-article-id="1"]')?.getAttribute('data-article-unread')).toBe('1')
+    expect(screen.getByTestId('article-1').getAttribute('data-seen')).toBe('0')
+    expect(document.querySelector('[data-article-id="2"]')?.getAttribute('data-article-unread')).toBe('0')
+    expect(screen.getByTestId('article-2').getAttribute('data-seen')).toBe('1')
+    // The article list itself must not be refetched — the visual flip happens without refetching.
+    expect(listMutate).not.toHaveBeenCalled()
+  })
+
   it('shows the reused empty-state guidance when the feed unread-only view has no unread articles, and its button resets the toggle and pagination', () => {
     const onFeedUnreadOnlyChange = vi.fn()
     const mockSetSize = vi.fn()

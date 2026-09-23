@@ -38,6 +38,8 @@ vi.mock('./components/feed/feed-list', () => ({
 }))
 
 const resetPagingAndScrollSpy = vi.fn()
+const markLocallyReadSpy = vi.fn()
+const unmarkLocallyReadSpy = vi.fn()
 let capturedArticleListProps: {
   feedUnreadOnly: string
   onFeedUnreadOnlyChange: (next: string) => void
@@ -51,9 +53,29 @@ vi.mock('./components/article/article-list', () => ({
     useImperativeHandle(ref, () => ({
       revalidate: vi.fn(),
       resetPagingAndScroll: resetPagingAndScrollSpy,
+      markLocallyRead: markLocallyReadSpy,
+      unmarkLocallyRead: unmarkLocallyReadSpy,
     }))
     return <div data-testid="article-list-stub" />
   }),
+}))
+
+// MarkAllReadButton (Task 4.1, Issue #16) has its own exhaustive coverage in
+// mark-all-read-button.test.tsx and delegates all execution/notification/undo
+// logic to useMarkAllRead (covered in use-mark-all-read.test.ts). Here we only
+// need to verify ArticleListPage renders it with the right props in the right
+// places, so it is stubbed the same way ArticleList and FeedList are above.
+let capturedMarkAllReadProps: {
+  target: { type: 'feed' | 'category'; id: number }
+  onMarkedLocally: (ids: number[]) => void
+  onUnmarkedLocally: (ids: number[]) => void
+} | undefined
+
+vi.mock('./components/article/mark-all-read-button', () => ({
+  MarkAllReadButton: (props: any) => {
+    capturedMarkAllReadProps = props
+    return <button data-testid="mark-all-read-button">mark all read</button>
+  },
 }))
 
 import { ArticleListPage } from './app'
@@ -140,6 +162,7 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     swrFeedsData = undefined
     swrCategoriesData = { categories: [] }
     capturedArticleListProps = undefined
+    capturedMarkAllReadProps = undefined
     // PageLayout observes a sentinel with IntersectionObserver to track the
     // header's scrolled state; jsdom doesn't implement it.
     vi.stubGlobal('IntersectionObserver', class {
@@ -376,5 +399,112 @@ describe('ArticleListPage header wiring (Issue #14)', () => {
     navigateTo('/categories/1')
     expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
     expect(localStorage.getItem('category-unread-only:1')).toBe('on')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MarkAllReadButton wiring in the header (Task 4.1, Issue #16). Verifies
+// ArticleListPage renders the button alongside the existing unread-only
+// toggle on feed/category pages, omits it everywhere else, keeps it visible
+// regardless of toggle state, and wires its callbacks to the ArticleList
+// ref's markLocallyRead/unmarkLocallyRead. MarkAllReadButton itself and
+// useMarkAllRead's internal execute/notify/undo behavior are covered
+// exhaustively elsewhere (mark-all-read-button.test.tsx, use-mark-all-read.test.ts).
+// ---------------------------------------------------------------------------
+describe('MarkAllReadButton wiring in the header (Issue #16)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    swrFeedsData = undefined
+    swrCategoriesData = { categories: [] }
+    capturedArticleListProps = undefined
+    capturedMarkAllReadProps = undefined
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor() {}
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+    })
+  })
+
+  it('renders the mark-all-read button to the left of the feed unread-only toggle on a plain feed page', () => {
+    setFeed(1)
+    renderArticleListPage('/feeds/1')
+    const button = screen.getByTestId('mark-all-read-button')
+    const toggle = screen.getByRole('button', { name: 'Unread only' })
+    expect(button).toBeTruthy()
+    expect(toggle).toBeTruthy()
+    expect(capturedMarkAllReadProps?.target).toEqual({ type: 'feed', id: 1 })
+    // Per Issue #16 review feedback: the button must sit to the left of the toggle.
+    expect(button.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders the mark-all-read button to the left of the category unread-only toggle on a category page', () => {
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+    const button = screen.getByTestId('mark-all-read-button')
+    const toggle = screen.getByRole('button', { name: 'Unread only' })
+    expect(button).toBeTruthy()
+    expect(toggle).toBeTruthy()
+    expect(capturedMarkAllReadProps?.target).toEqual({ type: 'category', id: 3 })
+    // Per Issue #16 review feedback: the button must sit to the left of the toggle.
+    expect(button.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  const noButtonViews = [
+    { name: 'the inbox', path: '/inbox' },
+    { name: 'the bookmarks view', path: '/bookmarks' },
+    { name: 'the likes view', path: '/likes' },
+    { name: 'the history view', path: '/history' },
+    { name: 'the clips view', path: '/clips' },
+  ]
+
+  it.each(noButtonViews)('does not render the mark-all-read button on $name', ({ path }) => {
+    renderArticleListPage(path)
+    expect(screen.queryByTestId('mark-all-read-button')).toBeNull()
+    expect(capturedMarkAllReadProps).toBeUndefined()
+  })
+
+  it('keeps the mark-all-read button visible after toggling unread-only on a feed page', () => {
+    setFeed(1)
+    renderArticleListPage('/feeds/1')
+    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
+  })
+
+  it('keeps the mark-all-read button visible after toggling unread-only on a category page', () => {
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
+  })
+
+  it('wires onMarkedLocally to the ArticleList ref markLocallyRead method', () => {
+    setFeed(1)
+    renderArticleListPage('/feeds/1')
+
+    act(() => {
+      capturedMarkAllReadProps?.onMarkedLocally([10, 20, 30])
+    })
+
+    expect(markLocallyReadSpy).toHaveBeenCalledWith([10, 20, 30])
+  })
+
+  it('wires onUnmarkedLocally to the ArticleList ref unmarkLocallyRead method', () => {
+    setCategory(3)
+    renderArticleListPage('/categories/3')
+
+    act(() => {
+      capturedMarkAllReadProps?.onUnmarkedLocally([10, 20, 30])
+    })
+
+    expect(unmarkLocallyReadSpy).toHaveBeenCalledWith([10, 20, 30])
   })
 })
