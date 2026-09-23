@@ -189,6 +189,7 @@ export function ArticleListPage() {
 
   const headerRight = isPlainFeedView ? (
     <div className="flex items-center gap-2">
+      {markAllReadButton}
       <FeedUnreadOnlyToggle
         unreadOnly={feedUnreadOnly === 'on'}
         onToggle={() => {
@@ -196,10 +197,10 @@ export function ArticleListPage() {
           articleListRef.current?.resetPagingAndScroll()
         }}
       />
-      {markAllReadButton}
     </div>
   ) : categoryIdNum !== undefined ? (
     <div className="flex items-center gap-2">
+      {markAllReadButton}
       <CategoryUnreadOnlyToggle
         unreadOnly={categoryUnreadOnly === 'on'}
         onToggle={() => {
@@ -207,7 +208,6 @@ export function ArticleListPage() {
           articleListRef.current?.resetPagingAndScroll()
         }}
       />
-      {markAllReadButton}
     </div>
   ) : undefined
 

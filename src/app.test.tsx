@@ -426,20 +426,28 @@ describe('MarkAllReadButton wiring in the header (Issue #16)', () => {
     })
   })
 
-  it('renders the mark-all-read button alongside the feed unread-only toggle on a plain feed page', () => {
+  it('renders the mark-all-read button to the left of the feed unread-only toggle on a plain feed page', () => {
     setFeed(1)
     renderArticleListPage('/feeds/1')
-    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Unread only' })).toBeTruthy()
+    const button = screen.getByTestId('mark-all-read-button')
+    const toggle = screen.getByRole('button', { name: 'Unread only' })
+    expect(button).toBeTruthy()
+    expect(toggle).toBeTruthy()
     expect(capturedMarkAllReadProps?.target).toEqual({ type: 'feed', id: 1 })
+    // Per Issue #16 review feedback: the button must sit to the left of the toggle.
+    expect(button.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('renders the mark-all-read button alongside the category unread-only toggle on a category page', () => {
+  it('renders the mark-all-read button to the left of the category unread-only toggle on a category page', () => {
     setCategory(3)
     renderArticleListPage('/categories/3')
-    expect(screen.getByTestId('mark-all-read-button')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Unread only' })).toBeTruthy()
+    const button = screen.getByTestId('mark-all-read-button')
+    const toggle = screen.getByRole('button', { name: 'Unread only' })
+    expect(button).toBeTruthy()
+    expect(toggle).toBeTruthy()
     expect(capturedMarkAllReadProps?.target).toEqual({ type: 'category', id: 3 })
+    // Per Issue #16 review feedback: the button must sit to the left of the toggle.
+    expect(button.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   const noButtonViews = [
