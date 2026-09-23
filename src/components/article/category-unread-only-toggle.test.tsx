@@ -3,22 +3,36 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { CategoryUnreadOnlyToggle } from './category-unread-only-toggle'
 
 describe('CategoryUnreadOnlyToggle', () => {
-  it('shows the "switch to unread only" label when unreadOnly is false', () => {
+  it('renders both segments with the existing category toggle labels as aria-labels', () => {
     render(<CategoryUnreadOnlyToggle unreadOnly={false} onToggle={vi.fn()} />)
-    expect(screen.getByText('Unread only')).toBeDefined()
-    expect(screen.queryByText('Show all')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show all' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Unread only' })).toBeDefined()
   })
 
-  it('shows the "switch to show all" label when unreadOnly is true', () => {
+  it('marks the "show all" segment active when unreadOnly is false', () => {
+    render(<CategoryUnreadOnlyToggle unreadOnly={false} onToggle={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Show all' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('marks the "unread only" segment active when unreadOnly is true', () => {
     render(<CategoryUnreadOnlyToggle unreadOnly={true} onToggle={vi.fn()} />)
-    expect(screen.getByText('Show all')).toBeDefined()
-    expect(screen.queryByText('Unread only')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Unread only' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Show all' }).getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('invokes onToggle exactly once when clicked', () => {
+  it('invokes onToggle exactly once when the inactive segment is clicked', () => {
     const onToggle = vi.fn()
     render(<CategoryUnreadOnlyToggle unreadOnly={false} onToggle={onToggle} />)
-    fireEvent.click(screen.getByText('Unread only'))
+    fireEvent.click(screen.getByRole('button', { name: 'Unread only' }))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onToggle).toHaveBeenCalledWith()
+  })
+
+  it('invokes onToggle when the already-active segment is clicked', () => {
+    const onToggle = vi.fn()
+    render(<CategoryUnreadOnlyToggle unreadOnly={false} onToggle={onToggle} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
     expect(onToggle).toHaveBeenCalledTimes(1)
     expect(onToggle).toHaveBeenCalledWith()
   })

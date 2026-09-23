@@ -79,10 +79,14 @@ const dict = {
   // FeedUnreadOnlyToggle
   'feed.unreadOnlyToggle.showUnreadOnly': { ja: '未読のみ表示', en: 'Unread only', zh: '仅未读'},
   'feed.unreadOnlyToggle.showAll': { ja: 'すべて表示', en: 'Show all', zh: '显示全部'},
+  'feed.unreadOnlyToggle.unreadText': { ja: '未読', en: 'Unread', zh: '未读'},
+  'feed.unreadOnlyToggle.allText': { ja: 'すべて', en: 'All', zh: '全部'},
 
   // CategoryUnreadOnlyToggle
   'category.unreadOnlyToggle.showUnreadOnly': { ja: '未読のみ表示', en: 'Unread only', zh: '仅未读'},
   'category.unreadOnlyToggle.showAll': { ja: 'すべて表示', en: 'Show all', zh: '显示全部'},
+  'category.unreadOnlyToggle.unreadText': { ja: '未読', en: 'Unread', zh: '未读'},
+  'category.unreadOnlyToggle.allText': { ja: 'すべて', en: 'All', zh: '全部'},
 
   // FeedErrorBanner - pipeline stages
   'feedError.stage.discovery': { ja: 'RSS検出', en: 'RSS Discovery', zh: 'RSS 发现'},

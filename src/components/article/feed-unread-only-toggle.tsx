@@ -1,4 +1,5 @@
 import { useI18n } from '../../lib/i18n'
+import { UnreadOnlyToggleSwitch } from '../ui/unread-only-toggle-switch'
 
 interface FeedUnreadOnlyToggleProps {
   unreadOnly: boolean
@@ -15,11 +16,14 @@ interface FeedUnreadOnlyToggleProps {
 export function FeedUnreadOnlyToggle({ unreadOnly, onToggle }: FeedUnreadOnlyToggleProps) {
   const { t } = useI18n()
 
-  const label = unreadOnly ? t('feed.unreadOnlyToggle.showAll') : t('feed.unreadOnlyToggle.showUnreadOnly')
-
   return (
-    <button onClick={() => onToggle()} className="text-accent text-sm hover:underline">
-      {label}
-    </button>
+    <UnreadOnlyToggleSwitch
+      unreadOnly={unreadOnly}
+      onChange={() => onToggle()}
+      showAllLabel={t('feed.unreadOnlyToggle.showAll')}
+      unreadOnlyLabel={t('feed.unreadOnlyToggle.showUnreadOnly')}
+      showAllText={t('feed.unreadOnlyToggle.allText')}
+      unreadOnlyText={t('feed.unreadOnlyToggle.unreadText')}
+    />
   )
 }
