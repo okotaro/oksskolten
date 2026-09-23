@@ -22,6 +22,8 @@ export function CategoryUnreadOnlyToggle({ unreadOnly, onToggle }: CategoryUnrea
       onChange={() => onToggle()}
       showAllLabel={t('category.unreadOnlyToggle.showAll')}
       unreadOnlyLabel={t('category.unreadOnlyToggle.showUnreadOnly')}
+      showAllText={t('category.unreadOnlyToggle.allText')}
+      unreadOnlyText={t('category.unreadOnlyToggle.unreadText')}
     />
   )
 }

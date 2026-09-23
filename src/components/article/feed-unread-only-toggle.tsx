@@ -22,6 +22,8 @@ export function FeedUnreadOnlyToggle({ unreadOnly, onToggle }: FeedUnreadOnlyTog
       onChange={() => onToggle()}
       showAllLabel={t('feed.unreadOnlyToggle.showAll')}
       unreadOnlyLabel={t('feed.unreadOnlyToggle.showUnreadOnly')}
+      showAllText={t('feed.unreadOnlyToggle.allText')}
+      unreadOnlyText={t('feed.unreadOnlyToggle.unreadText')}
     />
   )
 }
