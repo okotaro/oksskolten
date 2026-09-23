@@ -50,6 +50,12 @@ export interface ArticleListHandle {
    * Called by the page component after flipping a feed/category unread-only
    * toggle rendered in the header. */
   resetPagingAndScroll: () => void
+  /** Reflects newly-marked-read ids in the visible list without refetching,
+   * mirroring the overlay used by scroll auto-read and range-based bulk
+   * mark-read. */
+  markLocallyRead: (ids: number[]) => void
+  /** Reverts markLocallyRead, used when a mark-all-read is undone. */
+  unmarkLocallyRead: (ids: number[]) => void
 }
 
 interface ArticleListProps {
@@ -126,14 +132,6 @@ export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(funct
       revalidateFirstPage: isCollectionView,
     },
   )
-
-  useImperativeHandle(ref, () => ({
-    revalidate: () => mutate(),
-    resetPagingAndScroll: () => {
-      void setSize(1)
-      window.scrollTo(0, 0)
-    },
-  }), [mutate, setSize])
 
   const articles = useMemo(() => data ? data.flatMap(page => page.articles) : [], [data])
   const hasMore = data ? data[data.length - 1]?.has_more ?? false : false
@@ -471,6 +469,16 @@ export const ArticleList = forwardRef<ArticleListHandle, ArticleListProps>(funct
       return next
     })
   }, [])
+
+  useImperativeHandle(ref, () => ({
+    revalidate: () => mutate(),
+    resetPagingAndScroll: () => {
+      void setSize(1)
+      window.scrollTo(0, 0)
+    },
+    markLocallyRead: addLocallyReadIds,
+    unmarkLocallyRead: removeLocallyReadIds,
+  }), [mutate, setSize, addLocallyReadIds, removeLocallyReadIds])
 
   const { markRange, isPending } = useBulkMarkRead({
     scope: bulkReadScope,
