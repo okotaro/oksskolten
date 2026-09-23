@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from './__tests__/helpers/testDb.js'
 import { buildApp } from './__tests__/helpers/buildApp.js'
-import { createFeed, insertArticle, createCategory } from './db.js'
+import { createFeed, insertArticle, createCategory, markArticleSeen, getDb } from './db.js'
 import type { FastifyInstance } from 'fastify'
 
 vi.mock('./fetcher.js', async () => {
@@ -202,6 +202,73 @@ describe('POST /api/feeds/:id/mark-all-seen', () => {
     const body = res.json()
     expect(body.updated).toBe(0)
     expect(body.ids).toEqual([])
+  })
+})
+
+// Requirements 2.3, 4.4, 4.6, 5.1, 5.2 — the full HTTP round trip: mark-all-seen's
+// response ids fed straight into batch-unseen must restore exactly those
+// articles, and never touch an article that was already read beforehand.
+describe('mark-all-seen (feed) followed by batch-unseen', () => {
+  function seenAtOf(id: number): string | null {
+    return (getDb().prepare('SELECT seen_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null }).seen_at
+  }
+
+  it('restores exactly the newly-marked articles to unread and leaves an already-read article untouched', async () => {
+    const feed = seedFeed()
+    const alreadyRead = seedArticle(feed.id, { url: 'https://example.com/already-read' })
+    markArticleSeen(alreadyRead, true)
+    const target1 = seedArticle(feed.id, { url: 'https://example.com/target-1' })
+    const target2 = seedArticle(feed.id, { url: 'https://example.com/target-2' })
+
+    const seenRes = await app.inject({
+      method: 'POST',
+      url: `/api/feeds/${feed.id}/mark-all-seen`,
+    })
+    expect(seenRes.statusCode).toBe(200)
+    const { ids } = seenRes.json()
+    expect(ids.slice().sort()).toEqual([target1, target2].sort())
+    // The already-read article is excluded from the response, so the undo
+    // below has no way to flip it back to unread.
+    expect(ids).not.toContain(alreadyRead)
+
+    // The operation genuinely changed state, so the round trip below is not
+    // trivially satisfied by nothing having happened.
+    expect(seenAtOf(target1)).not.toBeNull()
+    expect(seenAtOf(target2)).not.toBeNull()
+    const alreadyReadSeenAtAfterMarkAll = seenAtOf(alreadyRead)
+
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+    expect(undoRes.json().updated).toBe(2)
+
+    expect(seenAtOf(target1)).toBeNull()
+    expect(seenAtOf(target2)).toBeNull()
+    // Untouched by both the mark-all-seen call (excluded from ids) and the
+    // undo call (never passed to batch-unseen).
+    expect(seenAtOf(alreadyRead)).toBe(alreadyReadSeenAtAfterMarkAll)
+    expect(seenAtOf(alreadyRead)).not.toBeNull()
+
+    const finalUnread = await app.inject({ method: 'GET', url: `/api/articles?feed_id=${feed.id}&unread=1` })
+    const finalUnreadIds = finalUnread.json().articles.map((a: { id: number }) => a.id).sort()
+    expect(finalUnreadIds).toEqual([target1, target2].sort())
+  })
+
+  it('returns no undo-capable ids when the feed has no unread articles', async () => {
+    const feed = seedFeed()
+    const alreadyRead = seedArticle(feed.id)
+    markArticleSeen(alreadyRead, true)
+
+    const seenRes = await app.inject({
+      method: 'POST',
+      url: `/api/feeds/${feed.id}/mark-all-seen`,
+    })
+    expect(seenRes.statusCode).toBe(200)
+    expect(seenRes.json()).toEqual({ updated: 0, ids: [] })
   })
 })
 
@@ -875,6 +942,68 @@ describe('POST /api/categories/:id/mark-all-seen', () => {
     const body = res.json()
     expect(body.updated).toBe(0)
     expect(body.ids).toEqual([])
+  })
+})
+
+// Requirements 3.3, 4.4, 4.6, 5.1, 5.2 — same HTTP-level round trip as the
+// feed case above, but scoped to a category target.
+describe('mark-all-seen (category) followed by batch-unseen', () => {
+  function seenAtOf(id: number): string | null {
+    return (getDb().prepare('SELECT seen_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null }).seen_at
+  }
+
+  it('restores exactly the newly-marked articles to unread and leaves an already-read article untouched', async () => {
+    const cat = createCategory('Tech')
+    const feed = seedFeed({ category_id: cat.id })
+    const alreadyRead = seedArticle(feed.id, { url: 'https://example.com/cat-already-read' })
+    markArticleSeen(alreadyRead, true)
+    const target1 = seedArticle(feed.id, { url: 'https://example.com/cat-target-1' })
+    const target2 = seedArticle(feed.id, { url: 'https://example.com/cat-target-2' })
+
+    const seenRes = await app.inject({
+      method: 'POST',
+      url: `/api/categories/${cat.id}/mark-all-seen`,
+    })
+    expect(seenRes.statusCode).toBe(200)
+    const { ids } = seenRes.json()
+    expect(ids.slice().sort()).toEqual([target1, target2].sort())
+    expect(ids).not.toContain(alreadyRead)
+
+    expect(seenAtOf(target1)).not.toBeNull()
+    expect(seenAtOf(target2)).not.toBeNull()
+    const alreadyReadSeenAtAfterMarkAll = seenAtOf(alreadyRead)
+
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: '/api/articles/batch-unseen',
+      headers: json,
+      payload: { ids },
+    })
+    expect(undoRes.statusCode).toBe(200)
+    expect(undoRes.json().updated).toBe(2)
+
+    expect(seenAtOf(target1)).toBeNull()
+    expect(seenAtOf(target2)).toBeNull()
+    expect(seenAtOf(alreadyRead)).toBe(alreadyReadSeenAtAfterMarkAll)
+    expect(seenAtOf(alreadyRead)).not.toBeNull()
+
+    const finalUnread = await app.inject({ method: 'GET', url: `/api/articles?category_id=${cat.id}&unread=1` })
+    const finalUnreadIds = finalUnread.json().articles.map((a: { id: number }) => a.id).sort()
+    expect(finalUnreadIds).toEqual([target1, target2].sort())
+  })
+
+  it('returns no undo-capable ids when the category has no unread articles', async () => {
+    const cat = createCategory('Empty')
+    const feed = seedFeed({ category_id: cat.id, url: 'https://empty-cat.example.com' })
+    const alreadyRead = seedArticle(feed.id)
+    markArticleSeen(alreadyRead, true)
+
+    const seenRes = await app.inject({
+      method: 'POST',
+      url: `/api/categories/${cat.id}/mark-all-seen`,
+    })
+    expect(seenRes.statusCode).toBe(200)
+    expect(seenRes.json()).toEqual({ updated: 0, ids: [] })
   })
 })
 
