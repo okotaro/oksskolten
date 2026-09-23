@@ -177,15 +177,31 @@ describe('DELETE /api/feeds/:id', () => {
 describe('POST /api/feeds/:id/mark-all-seen', () => {
   it('marks all articles in a feed as seen', async () => {
     const feed = seedFeed()
-    seedArticle(feed.id)
-    seedArticle(feed.id)
+    const id1 = seedArticle(feed.id)
+    const id2 = seedArticle(feed.id)
 
     const res = await app.inject({
       method: 'POST',
       url: `/api/feeds/${feed.id}/mark-all-seen`,
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().updated).toBe(2)
+    const body = res.json()
+    expect(body.updated).toBe(2)
+    expect(body.ids).toHaveLength(body.updated)
+    expect(body.ids.slice().sort()).toEqual([id1, id2].sort())
+  })
+
+  it('returns an empty ids array when the feed has no unread articles', async () => {
+    const feed = seedFeed()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/feeds/${feed.id}/mark-all-seen`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.updated).toBe(0)
+    expect(body.ids).toEqual([])
   })
 })
 
