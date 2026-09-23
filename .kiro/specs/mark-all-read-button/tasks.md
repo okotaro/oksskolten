@@ -27,7 +27,7 @@
   - _Depends: 1.1, 1.2_
   - _Boundary: markAllSeenByCategory_
 
-- [ ] 1.4 (P) ボタンと通知の文言を追加する
+- [x] 1.4 (P) ボタンと通知の文言を追加する
   - フィード/フォルダ画面のヘッダーに表示する既読化ボタンの文言を追加する
   - 既読化完了(件数あり)、対象なし、失敗、取り消しボタン、取り消し完了、取り消し失敗の各通知文言を追加する
   - 既存の辞書が要求するロケール全てに値を用意する
@@ -103,6 +103,7 @@
 
 ## Implementation Notes
 
+- タスク1.4のレビューで、新規既読化ボタン・通知に必要な7種類の文言は全て`bulk-mark-read`機能が残した既存キーの流用で賄えることが確認され、新規キーの追加はゼロ件だった(`src/lib/i18n.ts`は無変更)。以降のタスク(2.2のフック、2.3のボタン)は次のキーをそのまま使うこと: フィード側ボタン文言は`feeds.markAllRead`、フォルダ側ボタン文言は`category.markAllRead`、件数あり完了通知は`toast.bulkMarkedRead`(呼び出し時に`{ count: String(n) }`を渡す)、対象なし通知は`toast.bulkMarkedNone`、失敗通知は`toast.bulkMarkReadFailed`、取り消しボタンラベルは`toast.bulkUndo`、取り消し完了通知は`toast.bulkUndone`、取り消し失敗通知は`toast.bulkUndoFailed`。
 - `.claude/rules/docs.md`により、機能追加時は`docs/spec/*.md`(英語)の更新、利用者から見える変更であれば`README.md`への要約追記、および`make lint-docs`での検証が求められる。kiroのタスク生成ルールはドキュメント作業をタスクから除外しているため、承認済みタスクにこの作業は含まれていない。全タスク完了後に別途対応すること。
 - `.claude/rules/language.md`により、新規のソースファイルに書くコメント・ログ・エラーメッセージは英語にする。i18n辞書(`src/lib/i18n.ts`)とテストファイルは日本語を含められる既存の許可対象。
 - サーバー側は`shared/types.ts`の型を`import type`で参照する既存パターン(例: `BulkReadDirection` / `BulkReadScope`)に倣う。
