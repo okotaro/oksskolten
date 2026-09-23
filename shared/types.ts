@@ -121,3 +121,17 @@ export interface BatchUnseenRequest {
 export interface BatchUnseenResponse {
   updated: number
 }
+
+// --- Mark-all-read ---
+
+export interface MarkAllSeenResponse {
+  /** Number of articles newly marked as read. Equal to ids.length. */
+  updated: number
+  /** IDs of the articles newly marked as read, for a later undo. */
+  ids: number[]
+}
+
+/** Distinguishes whether a mark-all-read operation targets a single feed or a whole category (folder). */
+export type MarkAllReadTarget =
+  | { type: 'feed'; id: number }
+  | { type: 'category'; id: number }
