@@ -12,6 +12,7 @@ import type {
   BulkReadScope,
   RangeSeenResponse,
   BatchUnseenResponse,
+  MarkAllSeenResponse,
 } from '../../../shared/types'
 
 type DemoLocale = ReturnType<typeof getLocale>
@@ -392,21 +393,31 @@ export const demoStore = {
     return { success: true }
   },
 
-  markAllSeenByFeed(feedId: number) {
+  /**
+   * Mark every unread article in the feed as read.
+   * Mirrors markAllSeenByFeed in server/db/articles.ts: collects the ids of
+   * the articles that are actually unseen before mutating, so the returned
+   * ids are exactly the newly-marked-read set (a later undo never touches
+   * articles that were already read).
+   */
+  markAllSeenByFeed(feedId: number): MarkAllSeenResponse {
+    const unread = articles.filter(a => a.feed_id === feedId && a.seen_at == null)
     const now = new Date().toISOString()
-    articles.filter(a => a.feed_id === feedId).forEach(a => {
-      if (!a.seen_at) a.seen_at = now
-    })
-    return { success: true }
+    for (const a of unread) a.seen_at = now
+    return { updated: unread.length, ids: unread.map(a => a.id) }
   },
 
-  markAllSeenByCategory(categoryId: number) {
-    const now = new Date().toISOString()
+  /**
+   * Mark every unread article across the category's feeds as read.
+   * Mirrors markAllSeenByCategory in server/db/categories.ts — see
+   * markAllSeenByFeed above for the id-collection rationale.
+   */
+  markAllSeenByCategory(categoryId: number): MarkAllSeenResponse {
     const feedIds = new Set(feeds.filter(f => f.category_id === categoryId).map(f => f.id))
-    articles.filter(a => feedIds.has(a.feed_id)).forEach(a => {
-      if (!a.seen_at) a.seen_at = now
-    })
-    return { success: true }
+    const unread = articles.filter(a => feedIds.has(a.feed_id) && a.seen_at == null)
+    const now = new Date().toISOString()
+    for (const a of unread) a.seen_at = now
+    return { updated: unread.length, ids: unread.map(a => a.id) }
   },
 
   batchSeen(ids: number[]) {
